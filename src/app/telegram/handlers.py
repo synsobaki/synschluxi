@@ -1,8 +1,7 @@
-# src/app/telegram/handlers.py
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Any
 
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
@@ -13,19 +12,11 @@ from src.config import load_settings
 from src.infrastructure.repositories.ui_state import UIStateRepo
 from src.infrastructure.repositories.keys import KeysRepo
 from src.infrastructure.repositories.users import UserRepo
+from src.infrastructure.repositories.topics import TopicRepo
 from src.services.keygen_service import generate_key
+from src.utils.callbacks import unpack
 
 from src.app.telegram.admin_kb import admin_panel_kb, admin_days_kb, admin_uses_kb
-
-
-# utils.callbacks может быть в твоём проекте (pack/unpack/Act)
-# Если нет или сломано — handlers не упадёт: просто не будет понимать такие колбэки.
-try:
-    from src.utils.callbacks import unpack, Act  # type: ignore
-except Exception:  # pragma: no cover
-    unpack = None  # type: ignore
-    Act = None  # type: ignore
-
 
 router = Router()
 
@@ -35,18 +26,13 @@ def _settings():
 
 
 def _is_admin(user_id: int) -> bool:
-    s = _settings()
     try:
-        return int(user_id) == int(s.admin_id)
+        return int(user_id) == int(_settings().admin_id)
     except Exception:
         return False
 
 
 async def _safe_render_call(render: Any, method: str, *args, **kwargs):
-    """
-    Вызывает render.method(...) если он есть.
-    Если сигнатура другая — пробует без kwargs.
-    """
     fn = getattr(render, method, None)
     if not fn:
         return None
@@ -56,86 +42,20 @@ async def _safe_render_call(render: Any, method: str, *args, **kwargs):
         return await fn(*args)
 
 
-def _cb_act_name(cb: Any) -> str:
-    """
-    Приводим cb.act к строке, чтобы не зависеть от enum/типа.
-    """
-    a = getattr(cb, "act", None)
-    if a is None:
-        return ""
-    # enum?
-    if hasattr(a, "name"):
-        return str(a.name)
-    return str(a)
-
-
-def _normalize_act_name(act_name: str) -> str:
-    """
-    Нормализация callback action к каноническим именам Act из src.utils.callbacks.Act.
-    Поддерживает и старые человекочитаемые алиасы.
-    """
-    raw = (act_name or "").strip().upper()
-
-    aliases = {
-        "HOME": "MENU",
-        "PROFILE": "PROF",
-        "ARCHIVE": "ARCH",
-        "CREATE": "NEW",
-        "CREATE_NOTE": "NEW",
-        "CREATE_SUMMARY": "NEW",
-        "NEW_TOPIC": "NEW",
-        "KEY_INPUT": "KEY",
-        "ENTER_KEY": "KEY",
-    }
-    return aliases.get(raw, raw)
-
-
-def _simple_act_from_data(data: str) -> str:
-    """
-    На случай если в callback_data просто строки типа:
-    menu / profile / archive / create / back / home
-    """
-    d = (data or "").strip().lower()
-    return d
-
-
-def _is_command_text(text: str, command: str) -> bool:
-    raw = (text or "").strip().split(maxsplit=1)[0].lower()
-    if not raw.startswith("/"):
-        return False
-    cmd = raw[1:]
-    if "@" in cmd:
-        cmd = cmd.split("@", maxsplit=1)[0]
-    return cmd == command
-
-
 @router.message(CommandStart())
 async def on_start(message: Message, session: AsyncSession, render: Any):
     user_id = message.from_user.id
     chat_id = message.chat.id
-
     ui_repo = UIStateRepo(session)
     await ui_repo.get_or_create(user_id)
     await ui_repo.set_awaiting(user_id, None)
-    # /start должен быть всегда видимым: сбрасываем one-screen якорь,
-    # чтобы отправить новое меню-сообщение в низ чата.
     await ui_repo.set_main_message_id(user_id, None)
 
-    user_repo = UserRepo(session)
-    is_active = await user_repo.is_active(user_id)
-
-    if is_active:
+    if await UserRepo(session).is_active(user_id):
         await _safe_render_call(render, "show_menu", session, chat_id, user_id)
         return
 
-    await _safe_render_call(
-        render,
-        "show_profile",
-        session,
-        chat_id,
-        user_id,
-        first_name=(message.from_user.first_name or ""),
-    )
+    await _safe_render_call(render, "show_profile", session, chat_id, user_id, first_name=(message.from_user.first_name or ""))
 
 
 @router.message(Command("admin"))
@@ -150,8 +70,6 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
     user_id = cq.from_user.id
     chat_id = cq.message.chat.id if cq.message else user_id
     data = cq.data or ""
-
-    # важно: отвечаем сразу, чтобы кнопки не "думали"
     try:
         await cq.answer()
     except Exception:
@@ -159,228 +77,113 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
 
     ui_repo = UIStateRepo(session)
     await ui_repo.get_or_create(user_id)
-    user_repo = UserRepo(session)
-    is_active = await user_repo.is_active(user_id)
 
-    # ---------------------------
-    # ADMIN FLOW (adm:*)
-    # ---------------------------
     if data.startswith("adm:"):
         if not _is_admin(user_id):
             return
-
-        # adm:mk:0 -> выбор срока
         if data == "adm:mk:0":
             await cq.message.edit_text("⏳ Выберите срок действия ключа:", reply_markup=admin_days_kb())
             return
-
-        # back
         if data == "adm:back:panel":
             await cq.message.edit_text("🔐 Админ-панель", reply_markup=admin_panel_kb())
             return
-
         if data == "adm:back:days":
             await cq.message.edit_text("⏳ Выберите срок действия ключа:", reply_markup=admin_days_kb())
             return
-
-        # days
         if data.startswith("adm:days:"):
             val = data.split(":")[2]
             if val == "custom":
                 await ui_repo.set_awaiting(user_id, "admin_days_custom")
                 await cq.message.answer("Введи N — срок в днях (1..3650):")
                 return
-
             days = int(val)
-            await cq.message.edit_text(
-                f"📅 Срок: <b>{days} дней</b>\n\nВыберите лимит активаций:",
-                reply_markup=admin_uses_kb(days),
-            )
+            await cq.message.edit_text(f"📅 Срок: <b>{days} дней</b>\n\nВыберите лимит активаций:", reply_markup=admin_uses_kb(days))
             return
-
-        # uses custom
         if data.startswith("adm:uses_custom:"):
             days = int(data.split(":")[2])
             await ui_repo.set_awaiting(user_id, "admin_uses_custom", meta={"days": days})
             await cq.message.answer("Введи N — количество активаций (1..10000):")
             return
-
-        # uses fixed
         if data.startswith("adm:uses:"):
             _, _, days_s, uses_s = data.split(":")
-            days = int(days_s)
-            uses = int(uses_s)
-
+            days, uses = int(days_s), int(uses_s)
             key_value = generate_key()
             await KeysRepo(session).create_key(value=key_value, days_valid=days, max_uses=uses)
-
             await cq.message.edit_text(
                 "✅ <b>Ключ создан</b>\n\n"
-                f"<code>{key_value}</code>\n\n"
-                f"📅 Срок: {days} дней\n"
-                f"👥 Активаций: {uses}",
+                f"<code>{key_value}</code>\n\n📅 Срок: {days} дней\n👥 Активаций: {uses}",
                 reply_markup=admin_panel_kb(),
             )
             return
-
         return
 
-    # ---------------------------
-    # APP CALLBACKS (твоя схема через unpack/Act)
-    # ---------------------------
-    cb = None
-    if unpack is not None:
-        try:
-            cb = unpack(data)
-        except Exception:
-            cb = None
-
-    if cb is not None:
-        act = _normalize_act_name(_cb_act_name(cb))
-
-        # Поддержка самых частых действий.
-        # Если твой Act называется иначе — всё равно не упадёт, просто не матчнется.
-        if act == "MENU":
-            await _safe_render_call(render, "show_menu", session, chat_id, user_id)
-            return
-
-        if act == "PROF":
-            await _safe_render_call(
-                render,
-                "show_profile",
-                session,
-                chat_id,
-                user_id,
-                first_name=(cq.from_user.first_name or ""),
-            )
-            return
-
-        if act == "ARCH":
-            if not is_active:
-                await cq.message.answer("🔒 Архив доступен только после активации ключа.")
-                await _safe_render_call(
-                    render,
-                    "show_profile",
-                    session,
-                    chat_id,
-                    user_id,
-                    first_name=(cq.from_user.first_name or ""),
-                )
-                return
-            await _safe_render_call(render, "show_archive", session, chat_id, user_id)
-            return
-
-        if act == "NEW":
-            if not is_active:
-                await cq.message.answer("🔒 Создание конспекта доступно только после активации ключа.")
-                await _safe_render_call(
-                    render,
-                    "show_profile",
-                    session,
-                    chat_id,
-                    user_id,
-                    first_name=(cq.from_user.first_name or ""),
-                )
-                return
-            # если у тебя первый шаг — запросить тему текстом:
-            await ui_repo.set_awaiting(user_id, "topic_title")
-            await cq.message.answer("Напиши тему для конспекта (например: «Интерфейсы в Java»):")
-            return
-
-        if act == "KEY":
-            await _safe_render_call(render, "show_key_input", session, chat_id, user_id)
-            return
-
-        if act in ("KEY_REQUEST", "REQUEST_KEY"):
-            await _safe_render_call(render, "show_key_request", session, chat_id, user_id)
-            return
-
-        if act == "BACK":
-            prev = await ui_repo.pop_history(user_id)
-            if prev:
-                # если у тебя есть универсальный show_by_screen
-                r = await _safe_render_call(
-                    render,
-                    "show_by_screen",
-                    session,
-                    chat_id,
-                    user_id,
-                    screen=prev,
-                    first_name=(cq.from_user.first_name or ""),
-                )
-                if r is not None:
-                    return
-            # fallback
-            await _safe_render_call(render, "show_menu", session, chat_id, user_id)
-            return
-
-        if act in ("CONT", "TOPIC"):
-            if not is_active:
-                await _safe_render_call(
-                    render,
-                    "show_profile",
-                    session,
-                    chat_id,
-                    user_id,
-                    first_name=(cq.from_user.first_name or ""),
-                )
-                return
-            topic_id = cb.p1
-            r = await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=topic_id)
-            if r is not None:
-                return
-            await _safe_render_call(render, "show_archive", session, chat_id, user_id)
-            return
-
-        if act == "FMT":
-            if not is_active:
-                await _safe_render_call(
-                    render,
-                    "show_profile",
-                    session,
-                    chat_id,
-                    user_id,
-                    first_name=(cq.from_user.first_name or ""),
-                )
-                return
-            topic_id = cb.p1
-            fmt = cb.p2
-            r = await _safe_render_call(
-                render,
-                "show_topic_card",
-                session,
-                chat_id,
-                user_id,
-                topic_id=topic_id,
-                fmt=fmt,
-            )
-            if r is not None:
-                return
-            await _safe_render_call(render, "show_menu", session, chat_id, user_id)
-            return
-
-        # если не распознали act — fallback в меню
+    cb = unpack(data)
+    if not cb:
         await _safe_render_call(render, "show_menu", session, chat_id, user_id)
         return
 
-    # ---------------------------
-    # FALLBACK: простые строковые колбэки
-    # ---------------------------
-    simp = _simple_act_from_data(data)
-    if simp in ("menu", "home"):
+    is_active = await UserRepo(session).is_active(user_id)
+
+    if cb.section == "nav" and cb.action == "menu":
         await _safe_render_call(render, "show_menu", session, chat_id, user_id)
         return
-    if simp == "profile":
+    if cb.section == "nav" and cb.action == "back":
+        prev = await ui_repo.pop_history(user_id)
+        if prev:
+            await _safe_render_call(render, "show_by_screen", session, chat_id, user_id, screen=prev, first_name=(cq.from_user.first_name or ""))
+            return
+        await _safe_render_call(render, "show_menu", session, chat_id, user_id)
+        return
+
+    if cb.section == "menu" and cb.action == "profile":
         await _safe_render_call(render, "show_profile", session, chat_id, user_id, first_name=(cq.from_user.first_name or ""))
         return
-    if simp == "archive":
+    if cb.section == "menu" and cb.action == "archive":
         if not is_active:
             await _safe_render_call(render, "show_profile", session, chat_id, user_id, first_name=(cq.from_user.first_name or ""))
             return
         await _safe_render_call(render, "show_archive", session, chat_id, user_id)
         return
+    if cb.section == "menu" and cb.action == "create":
+        if not is_active:
+            await _safe_render_call(render, "show_profile", session, chat_id, user_id, first_name=(cq.from_user.first_name or ""))
+            return
+        await _safe_render_call(render, "show_topic_title_input", session, chat_id, user_id)
+        return
 
-    # совсем ничего не поняли — не ломаем UX, просто меню
+    if cb.section == "profile" and cb.action == "key_input":
+        await _safe_render_call(render, "show_key_input", session, chat_id, user_id)
+        return
+    if cb.section == "profile" and cb.action == "key_request":
+        await _safe_render_call(render, "show_key_request", session, chat_id, user_id)
+        return
+
+    if cb.section == "topic" and cb.action == "open":
+        await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=int(cb.value))
+        return
+    if cb.section == "topic" and cb.action == "open_last":
+        candidate = await TopicRepo(session).get_continue_candidate(user_id)
+        if candidate:
+            await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=candidate.id)
+            return
+        await _safe_render_call(render, "show_archive", session, chat_id, user_id)
+        return
+    if cb.section == "topic" and cb.action == "format":
+        raw = cb.value.split("|", 1)
+        topic_id, fmt = int(raw[0]), raw[1]
+        repo = TopicRepo(session)
+        topic = await repo.get_by_id(user_id, topic_id)
+        if not topic:
+            await _safe_render_call(render, "show_archive", session, chat_id, user_id)
+            return
+        await repo.set_format(user_id, topic_id, fmt)
+        await _safe_render_call(render, "show_topic_plan", session, chat_id, user_id, topic_id=topic_id, title=topic.title)
+        return
+    if cb.section == "topic" and cb.action == "generate":
+        await _safe_render_call(render, "show_generation_status", session, chat_id, user_id)
+        await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=int(cb.value), push_history=False)
+        return
+
     await _safe_render_call(render, "show_menu", session, chat_id, user_id)
 
 
@@ -390,25 +193,13 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
     chat_id = message.chat.id
     text = (message.text or "").strip()
 
-    # fallback на случай, если фильтры команд не сработали
-    if _is_command_text(text, "start"):
-        return await on_start(message, session, render)
-
-    if _is_command_text(text, "admin"):
-        return await on_admin(message, session)
-
     ui_repo = UIStateRepo(session)
     ui = await ui_repo.get_or_create(user_id)
-    user_repo = UserRepo(session)
 
-    # ---------------------------
-    # ADMIN: custom days
-    # ---------------------------
     if ui.awaiting_input == "admin_days_custom":
         if not _is_admin(user_id):
             await ui_repo.set_awaiting(user_id, None)
             return
-
         try:
             days = int(text)
             if days < 1 or days > 3650:
@@ -416,19 +207,14 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
         except Exception:
             await message.answer("Введи число дней (1..3650).")
             return
-
         await ui_repo.set_awaiting(user_id, None)
         await message.answer(f"📅 Срок: {days} дней\nВыбери лимит активаций:", reply_markup=admin_uses_kb(days))
         return
 
-    # ---------------------------
-    # ADMIN: custom uses
-    # ---------------------------
     if ui.awaiting_input == "admin_uses_custom":
         if not _is_admin(user_id):
             await ui_repo.set_awaiting(user_id, None)
             return
-
         try:
             uses = int(text)
             if uses < 1 or uses > 10000:
@@ -437,17 +223,7 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
             await message.answer("Введи число активаций (1..10000).")
             return
 
-        raw_meta = ui.awaiting_meta_json
-        if raw_meta:
-            try:
-                meta = json.loads(raw_meta)
-                if not isinstance(meta, dict):
-                    meta = {}
-            except Exception:
-                meta = {}
-        else:
-            meta = {}
-
+        meta = json.loads(ui.awaiting_meta_json or "{}")
         days = int(meta.get("days", 0))
         if days <= 0:
             await ui_repo.set_awaiting(user_id, None)
@@ -456,71 +232,28 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
 
         key_value = generate_key()
         await KeysRepo(session).create_key(value=key_value, days_valid=days, max_uses=uses)
-
         await ui_repo.set_awaiting(user_id, None)
         await message.answer(
             "✅ <b>Ключ создан</b>\n\n"
-            f"<code>{key_value}</code>\n\n"
-            f"📅 Срок: {days} дней\n"
-            f"👥 Активаций: {uses}",
+            f"<code>{key_value}</code>\n\n📅 Срок: {days} дней\n👥 Активаций: {uses}",
             reply_markup=admin_panel_kb(),
         )
         return
 
-    # ---------------------------
-    # USER: ввод ключа (если у тебя так устроено)
-    # ---------------------------
     if ui.awaiting_input == "key":
-        # KeysRepo.activate_key должен существовать в твоём репозитории.
-        # Если у тебя метод называется иначе — скажи, я подгоню.
-        ok = False
-        try:
-            ok = await KeysRepo(session).activate_key(value=text, user_id=user_id)
-        except Exception:
-            ok = False
-
+        ok = await KeysRepo(session).activate_key(value=text, user_id=user_id)
         if not ok:
             await message.answer("❌ Ключ недействителен, истёк или лимит активаций исчерпан.")
             return
-
         await ui_repo.set_awaiting(user_id, None)
         await _safe_render_call(render, "show_profile", session, chat_id, user_id, first_name=(message.from_user.first_name or ""))
         return
 
-    # ---------------------------
-    # USER: ввод темы (первый шаг создания)
-    # ---------------------------
     if ui.awaiting_input == "topic_title":
-        if not await user_repo.is_active(user_id):
-            await ui_repo.set_awaiting(user_id, None)
-            await _safe_render_call(
-                render,
-                "show_profile",
-                session,
-                chat_id,
-                user_id,
-                first_name=(message.from_user.first_name or ""),
-            )
-            return
-        title = text
-        if len(title) < 3:
+        if len(text) < 3:
             await message.answer("Слишком коротко. Напиши тему чуть подробнее 🙂")
             return
-
-        # дальше у тебя будет создание draft topic в TopicRepo и показ выбора формата.
-        # чтобы сейчас не ломать проект, просто сбрасываем ожидание и кидаем в меню/или формат пик.
         await ui_repo.set_awaiting(user_id, None)
-
-        # если у тебя есть show_format_pick — отлично, используем
-        r = await _safe_render_call(render, "show_format_pick", session, chat_id, user_id, title=title)
-        if r is not None:
-            return
-
-        await message.answer(f"✅ Тема принята: <b>{title}</b>\n(Дальше подключим создание draft + формат)")
-        await _safe_render_call(render, "show_menu", session, chat_id, user_id)
+        topic = await TopicRepo(session).create_draft(user_id=user_id, title=text)
+        await _safe_render_call(render, "show_format_pick", session, chat_id, user_id, topic_id=topic.id, title=topic.title)
         return
-
-    # ---------------------------
-    # default: не ломаем UX — просто меню one-screen
-    # ---------------------------
-    await _safe_render_call(render, "show_menu", session, chat_id, user_id)
