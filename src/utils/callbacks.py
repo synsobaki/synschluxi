@@ -1,35 +1,32 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
-
-
-class Act(str, Enum):
-    MENU = "m"
-    PROF = "p"
-    KEY = "k"
-    BACK = "b"
-
-    NEW = "n"
-    ARCH = "a"
-
-    CONT = "c"       # продолжить тему (topic_id)
-    TOPIC = "t"      # открыть карточку темы (topic_id)
-    FMT = "f"        # выбрать формат (topic_id, fmt)
 
 
 @dataclass(frozen=True)
 class CB:
-    act: Act
-    p1: str = ""
-    p2: str = ""
+    section: str
+    action: str
+    value: str = "0"
 
 
-def pack(act: Act, p1: str | int | None = None, p2: str | int | None = None) -> str:
-    s1 = "" if p1 is None else str(p1)
-    s2 = "" if p2 is None else str(p2)
-    data = f"{act.value}:{s1}:{s2}"
-    # Telegram limit 64 bytes for callback_data
+# legacy compatibility field for existing handlers
+    @property
+    def act(self) -> str:
+        return self.action
+
+    @property
+    def p1(self) -> str:
+        return self.value
+
+    @property
+    def p2(self) -> str:
+        return ""
+
+
+def pack(section: str, action: str, value: str | int | None = "0") -> str:
+    v = "0" if value is None else str(value)
+    data = f"{section}:{action}:{v}"
     if len(data.encode("utf-8")) > 64:
         raise ValueError(f"callback_data too long: {data}")
     return data
@@ -41,12 +38,8 @@ def unpack(data: str | None) -> CB | None:
     parts = data.split(":", 2)
     if len(parts) != 3:
         return None
-    a, p1, p2 = parts
-    try:
-        act = Act(a)
-    except Exception:
-        return None
-    return CB(act=act, p1=p1, p2=p2)
+    section, action, value = parts
+    return CB(section=section, action=action, value=value)
 
 
 def to_int(s: str, default: int | None = None) -> int | None:
