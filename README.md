@@ -8,7 +8,8 @@
 2. `.venv\Scripts\activate`
 3. `pip install -r requirements.txt`
 4. `copy .env.example .env`
-5. Укажи `BOT_TOKEN` в файле `.env`
+5. Укажи `BOT_TOKEN` и `ADMIN_ID` в файле `.env`
+   - Если у тебя старый формат `ADMIN_IDS=[123456789]`, он тоже поддерживается.
 6. `python -m src.main`
 
 ## Быстрый запуск (Linux/macOS)
@@ -17,7 +18,8 @@
 2. `source .venv/bin/activate`
 3. `pip install -r requirements.txt`
 4. `cp .env.example .env`
-5. Укажи `BOT_TOKEN` в файле `.env`
+5. Укажи `BOT_TOKEN` и `ADMIN_ID` в файле `.env`
+   - Если у тебя старый формат `ADMIN_IDS=[123456789]`, он тоже поддерживается.
 6. `python -m src.main`
 
 ## Важно
