@@ -90,3 +90,21 @@ async def init_db() -> None:
             await conn.exec_driver_sql(
                 "ALTER TABLE topics ADD COLUMN category TEXT NOT NULL DEFAULT 'Общее'"
             )
+
+        users_info = await conn.exec_driver_sql("PRAGMA table_info('users')")
+        user_columns = {row[1] for row in users_info.fetchall()}
+        if "username" not in user_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE users ADD COLUMN username TEXT"
+            )
+
+        keys_info = await conn.exec_driver_sql("PRAGMA table_info('keys')")
+        key_columns = {row[1] for row in keys_info.fetchall()}
+        if "key_type" not in key_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE keys ADD COLUMN key_type TEXT NOT NULL DEFAULT 'multi'"
+            )
+        if "is_disabled" not in key_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE keys ADD COLUMN is_disabled INTEGER NOT NULL DEFAULT 0"
+            )
