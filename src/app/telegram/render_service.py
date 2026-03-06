@@ -96,13 +96,15 @@ class RenderService:
     ) -> None:
         await self._set_screen(session, user_id, "profile", push_history=push_history)
 
-        # тут позже подключим реальный статус/ключи из UsersRepo
-        try:
-            text = screens.profile_text(first_name=first_name, is_activated=False)
-        except TypeError:
-            text = screens.profile_text()
+        # Пока показываем дефолтный профиль без привязки к ключу.
+        text = screens.profile_text(
+            first_name=first_name,
+            is_active=False,
+            masked_key=None,
+        )
 
-        kb = keyboards.profile_kb()
+        admin_url = getattr(self.settings, "admin_url", None) or "https://t.me/umkovo_support"
+        kb = keyboards.profile_kb(admin_url=admin_url)
         await self._render(session, chat_id, user_id, text, kb)
 
     async def show_key_input(
@@ -131,9 +133,14 @@ class RenderService:
         **_,
     ) -> None:
         await self._set_screen(session, user_id, "key_request", push_history=push_history)
-        text = screens.key_request_text()
-        kb = keyboards.key_request_kb()
-        await self._render(session, chat_id, user_id, text, kb)
+        # Запрос ключа реализован через URL-кнопку в профиле,
+        # поэтому возвращаем пользователя на экран профиля.
+        await self.show_profile(
+            session=session,
+            chat_id=chat_id,
+            user_id=user_id,
+            push_history=False,
+        )
 
     async def show_archive(
         self,
@@ -144,8 +151,8 @@ class RenderService:
         **_,
     ) -> None:
         await self._set_screen(session, user_id, "archive", push_history=push_history)
-        text = screens.archive_text()
-        kb = keyboards.archive_kb()
+        text = "📚 Архив пока пуст. Создай первый конспект из меню."
+        kb = keyboards.key_input_kb()
         await self._render(session, chat_id, user_id, text, kb)
 
     async def show_by_screen(
