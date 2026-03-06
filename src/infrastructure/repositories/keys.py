@@ -13,12 +13,12 @@ class KeysRepo:
 
     async def create_key(
         self,
-        key: str,
+        value: str,
         days_valid: int,
         max_uses: int,
     ) -> None:
         row = KeyRow(
-            key=key,
+            value=value,
             days_valid=days_valid,
             max_uses=max_uses,
             used_count=0,
@@ -27,14 +27,14 @@ class KeysRepo:
         self.session.add(row)
         await self.session.flush()
 
-    async def get_by_key(self, key: str) -> KeyRow | None:
+    async def get_by_key(self, value: str) -> KeyRow | None:
         result = await self.session.execute(
-            select(KeyRow).where(KeyRow.key == key)
+            select(KeyRow).where(KeyRow.value == value)
         )
         return result.scalar_one_or_none()
 
-    async def activate_key(self, key: str, user_id: int) -> bool:
-        row = await self.get_by_key(key)
+    async def activate_key(self, value: str, user_id: int) -> bool:
+        row = await self.get_by_key(value)
         if not row:
             return False
 
@@ -43,7 +43,6 @@ class KeysRepo:
             return False
 
         row.used_count += 1
-        row.last_used_at = datetime.utcnow()
 
         await self.session.flush()
         return True

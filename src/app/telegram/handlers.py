@@ -162,7 +162,7 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
             uses = int(uses_s)
 
             key_value = generate_key()
-            await KeysRepo(session).create_key(key=key_value, days_valid=days, max_uses=uses)
+            await KeysRepo(session).create_key(value=key_value, days_valid=days, max_uses=uses)
 
             await cq.message.edit_text(
                 "✅ <b>Ключ создан</b>\n\n"
@@ -323,7 +323,7 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
             return
 
         key_value = generate_key()
-        await KeysRepo(session).create_key(key=key_value, days_valid=days, max_uses=uses)
+        await KeysRepo(session).create_key(value=key_value, days_valid=days, max_uses=uses)
 
         await ui_repo.set_awaiting(user_id, None)
         await message.answer(
@@ -343,7 +343,7 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
         # Если у тебя метод называется иначе — скажи, я подгоню.
         ok = False
         try:
-            ok = await KeysRepo(session).activate_key(key=text, user_id=user_id)
+            ok = await KeysRepo(session).activate_key(value=text, user_id=user_id)
         except Exception:
             ok = False
 
