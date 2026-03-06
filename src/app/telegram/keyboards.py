@@ -47,8 +47,8 @@ def key_input_kb() -> InlineKeyboardMarkup:
 def key_request_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(InlineKeyboardButton(text="👤 @mcknmf", url="https://t.me/mcknmf"))
-    b.row(InlineKeyboardButton(text="🛟 @Usikling", url="https://t.me/Usikling"))
-    b.button(text="🏠 В меню", callback_data=pack("nav", "menu", 0))
+    b.row(InlineKeyboardButton(text="👤 @Usikling", url="https://t.me/Usikling"))
+    b.button(text="⬅ Назад", callback_data=pack("nav", "back", 0))
     b.adjust(1)
     return b.as_markup()
 
@@ -75,6 +75,7 @@ def format_pick_kb(topic_id: int) -> InlineKeyboardMarkup:
 def topic_plan_kb(topic_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="📘 Создать конспект", callback_data=pack("topic", "generate", topic_id))
+    b.button(text="🔁 Перестроить план", callback_data=pack("topic", "plan_rebuild", topic_id))
     b.button(text="✏ Изменить тему", callback_data=pack("menu", "create", 0))
     b.button(text="🏠 В меню", callback_data=pack("nav", "menu", 0))
     b.adjust(1)
@@ -99,7 +100,7 @@ def topic_edit_kb(topic_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="✂ Кратче", callback_data=pack("topic", "improve", f"{topic_id}|shorter"))
     b.button(text="📚 Больше", callback_data=pack("topic", "improve", f"{topic_id}|longer"))
-    b.button(text="♻ Переписать", callback_data=pack("topic", "improve", f"{topic_id}|rewrite"))
+    b.button(text="🧠 Переписать проще", callback_data=pack("topic", "improve", f"{topic_id}|rewrite"))
     b.button(text="⬅ Назад", callback_data=pack("topic", "open", topic_id))
     b.adjust(1)
     return b.as_markup()
@@ -126,11 +127,11 @@ def test_result_kb(topic_id: int, weak_section_id: str = "0") -> InlineKeyboardM
 def works_kb(topics: list, page: int = 0, total_pages: int = 1) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for topic in topics:
-        b.button(text=f"{topic.title} | {topic.category} | {topic.status}", callback_data=pack("works", "open", topic.id))
+        fmt = topic.fmt or "кратко"
+        b.button(text=f"📄 {topic.title}\nКонспект • {fmt} • {topic.mastery}%", callback_data=pack("works", "open", topic.id))
     b.row(
-        InlineKeyboardButton(text="⬅ Назад", callback_data=pack("works", "page", max(page - 1, 0))),
-        InlineKeyboardButton(text=f"{page + 1} / {max(total_pages, 1)}", callback_data=pack("works", "page", page)),
-        InlineKeyboardButton(text="Вперёд ➡", callback_data=pack("works", "page", min(page + 1, max(total_pages - 1, 0)))),
+        InlineKeyboardButton(text="⬅", callback_data=pack("works", "page", max(page - 1, 0))),
+        InlineKeyboardButton(text="➡", callback_data=pack("works", "page", min(page + 1, max(total_pages - 1, 0)))),
     )
     b.button(text="🏠 В меню", callback_data=pack("nav", "menu", 0))
     b.adjust(1)
@@ -146,9 +147,10 @@ def file_upload_kb() -> InlineKeyboardMarkup:
 def key_review_kb(topic_id: int, idx: int, total: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     if idx > 0:
-        b.button(text="⬅ Предыдущий", callback_data=pack("review", "nav", f"{topic_id}|{idx-1}"))
+        b.button(text="⬅", callback_data=pack("review", "nav", f"{topic_id}|{idx-1}"))
     if idx < total - 1:
-        b.button(text="➡ Следующий", callback_data=pack("review", "nav", f"{topic_id}|{idx+1}"))
+        b.button(text="➡", callback_data=pack("review", "nav", f"{topic_id}|{idx+1}"))
+    b.button(text="📖 Повторить слабый раздел", callback_data=pack("training", "open", f"{topic_id}|0"))
     b.button(text="🏠 В меню", callback_data=pack("nav", "menu", 0))
-    b.adjust(2, 1)
+    b.adjust(2, 1, 1)
     return b.as_markup()
