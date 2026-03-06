@@ -118,6 +118,7 @@ class TopicRow(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False, default="Общее")
     fmt: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
     mastery: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

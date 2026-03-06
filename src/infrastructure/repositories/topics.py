@@ -11,8 +11,8 @@ class TopicRepo:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create_draft(self, user_id: int, title: str) -> TopicRow:
-        row = TopicRow(user_id=user_id, title=title.strip(), fmt="", status="draft", mastery=0)
+    async def create_draft(self, user_id: int, title: str, category: str = "Общее") -> TopicRow:
+        row = TopicRow(user_id=user_id, title=title.strip(), category=(category or "Общее").strip()[:64], fmt="", status="draft", mastery=0)
         self.session.add(row)
         await self.session.flush()
         return row
@@ -95,3 +95,18 @@ class TopicRepo:
             .limit(1)
         )
         return await self.session.scalar(stmt)
+
+
+    async def list_page(self, user_id: int, page: int = 0, page_size: int = 5) -> tuple[list[TopicRow], int]:
+        page = max(page, 0)
+        page_size = max(1, page_size)
+        stmt = (
+            select(TopicRow)
+            .where(TopicRow.user_id == user_id)
+            .order_by(desc(TopicRow.created_at))
+        )
+        rows = list((await self.session.scalars(stmt)).all())
+        total = len(rows)
+        start = page * page_size
+        end = start + page_size
+        return rows[start:end], total
