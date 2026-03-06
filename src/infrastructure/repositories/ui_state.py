@@ -28,7 +28,7 @@ class UIStateRepo:
             # flush не обязателен — commit сделает middleware
         return row
 
-    async def set_main_message_id(self, user_id: int, message_id: int) -> None:
+    async def set_main_message_id(self, user_id: int, message_id: int | None) -> None:
         row = await self.get_or_create(user_id)
         row.main_message_id = message_id
         row.updated_at = datetime.utcnow()
