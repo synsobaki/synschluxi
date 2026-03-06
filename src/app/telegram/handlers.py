@@ -98,6 +98,16 @@ def _simple_act_from_data(data: str) -> str:
     return d
 
 
+def _is_command_text(text: str, command: str) -> bool:
+    raw = (text or "").strip().split(maxsplit=1)[0].lower()
+    if not raw.startswith("/"):
+        return False
+    cmd = raw[1:]
+    if "@" in cmd:
+        cmd = cmd.split("@", maxsplit=1)[0]
+    return cmd == command
+
+
 @router.message(CommandStart())
 async def on_start(message: Message, session: AsyncSession, render: Any):
     user_id = message.from_user.id
@@ -315,6 +325,13 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
     user_id = message.from_user.id
     chat_id = message.chat.id
     text = (message.text or "").strip()
+
+    # fallback на случай, если фильтры команд не сработали
+    if _is_command_text(text, "start"):
+        return await on_start(message, session, render)
+
+    if _is_command_text(text, "admin"):
+        return await on_admin(message, session)
 
     ui_repo = UIStateRepo(session)
     ui = await ui_repo.get_or_create(user_id)
