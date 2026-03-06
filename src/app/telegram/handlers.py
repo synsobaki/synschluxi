@@ -451,7 +451,7 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         topic = await repo.get_by_id(user_id, topic_id)
         if not topic:
             return await _safe_render_call(render, "show_works_list", session, chat_id, user_id)
-        for step in range(4):
+        for step in range(7):
             await _safe_render_call(render, "show_generation_status", session, chat_id, user_id, step=step, push_history=(step == 0))
         summary_service = SummaryService()
         test_service = TestService()
@@ -510,27 +510,35 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         state = await ui_repo.get_or_create(user_id)
         meta = json.loads(state.awaiting_meta_json or "{}")
         score = int(meta.get("score", 0))
+        review = list(meta.get("review", []))
 
         question = test[q_idx]
         correct = int(question.get("correct", -1)) == answer_idx
         if correct:
             score += 1
         await cq.answer("Верно!" if correct else "Есть ошибка")
+        options = [str(x) for x in question.get("options", [])]
+        review.append({
+            "question": str(question.get("question", "")),
+            "user_answer": options[answer_idx] if 0 <= answer_idx < len(options) else "—",
+            "correct_answer": options[int(question.get("correct", -1))] if 0 <= int(question.get("correct", -1)) < len(options) else "—",
+            "status": "✅ Верно" if correct else "❌ Неверно",
+        })
 
         next_idx = q_idx + 1
-        weak = str(question.get("section", "Ключевые понятия")) if not correct else str(meta.get("weak", "Ключевые понятия"))
+        weak = str(question.get("section_title", "Ключевые понятия")) if not correct else str(meta.get("weak", "Ключевые понятия"))
         if next_idx >= len(test):
             mastery = min(100, max(40, int(score * 100 / len(test))))
             status = "mastered" if mastery >= 80 else "ready"
             await TopicRepo(session).set_status(user_id, topic_id, status=status, mastery=mastery)
             await ui_repo.set_awaiting(user_id, None)
             weak_sections = [weak] if weak else []
-            await TopicRepo(session).set_test_feedback(user_id, topic_id, {"score": score, "total": len(test)}, weak)
+            await TopicRepo(session).set_test_feedback(user_id, topic_id, {"score": score, "total": len(test), "review": review}, weak)
             await _safe_render_call(render, "show_test_result", session, chat_id, user_id, topic_id=topic_id, score=score, total=len(test), weak_sections=weak_sections)
             await ui_repo.set_awaiting(user_id, "weak_training", meta={"topic_id": topic_id, "weak": weak})
             return
 
-        await ui_repo.set_awaiting(user_id, "test", meta={"topic_id": topic_id, "q_idx": next_idx, "score": score, "weak": weak})
+        await ui_repo.set_awaiting(user_id, "test", meta={"topic_id": topic_id, "q_idx": next_idx, "score": score, "weak": weak, "review": review})
         await _safe_render_call(render, "show_test_question", session, chat_id, user_id, topic_id=topic_id, q_idx=next_idx, push_history=False)
         return
 
@@ -548,6 +556,11 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         wrong_answers = [q for q in test if str(q.get("section_title") or q.get("section")) == weak]
         training_text = TestService().build_training_from_weak_section(topic.title, weak_section, wrong_answers)
         await _safe_render_call(render, "show_weak_section_training", session, chat_id, user_id, topic_id=topic_id, weak_section=weak, training_text=training_text)
+        return
+
+    if cb.section == "review" and cb.action == "nav":
+        topic_id, idx = map(int, cb.value.split("|", 1))
+        await _safe_render_call(render, "show_test_review", session, chat_id, user_id, topic_id=topic_id, idx=idx, push_history=False)
         return
 
     await _safe_render_call(render, "show_menu", session, chat_id, user_id)
