@@ -37,3 +37,8 @@
    - `python -m src`
    - `python main.py`
 
+
+
+## Документация
+
+- Подробное ТЗ продукта: `docs/TECH_SPEC.md`.

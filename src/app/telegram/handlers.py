@@ -445,6 +445,26 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         plan = SummaryService().build_plan(SummarySource(title=topic.title, source_type=topic.source_type or "topic"), fmt)
         await _safe_render_call(render, "show_plan_preview", session, chat_id, user_id, topic_id=topic_id, title=topic.title, plan=plan)
         return
+    if cb.section == "topic" and cb.action == "plan_rebuild":
+        topic_id = int(cb.value)
+        repo = TopicRepo(session)
+        topic = await repo.get_by_id(user_id, topic_id)
+        if not topic:
+            return await _safe_render_call(render, "show_works_list", session, chat_id, user_id)
+        source_text = ""
+        ui_state = await ui_repo.get_or_create(user_id)
+        meta = json.loads(ui_state.awaiting_meta_json or "{}")
+        if ui_state.awaiting_input == "topic_file_mode" and int(meta.get("topic_id", 0)) == topic_id:
+            source_text = str(meta.get("source_text", ""))
+        source = SummarySource(
+            title=topic.title,
+            source_type=topic.source_type or "topic",
+            source_text=source_text,
+            file_name=topic.source_file_name,
+        )
+        plan = SummaryService().build_plan(source, topic.fmt or "brief")
+        await _safe_render_call(render, "show_plan_preview", session, chat_id, user_id, topic_id=topic_id, title=topic.title, plan=plan, push_history=False)
+        return
     if cb.section == "topic" and cb.action == "generate":
         topic_id = int(cb.value)
         repo = TopicRepo(session)
