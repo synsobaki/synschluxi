@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +37,45 @@ class TopicRepo:
         if mastery is not None:
             row.mastery = mastery
         await self.session.flush()
+
+    async def save_generated_material(
+        self,
+        user_id: int,
+        topic_id: int,
+        content_sections: list[dict[str, str]],
+        test_questions: list[dict[str, object]],
+    ) -> TopicRow | None:
+        row = await self.get_by_id(user_id, topic_id)
+        if not row:
+            return None
+        row.content_json = json.dumps(content_sections, ensure_ascii=False)
+        row.test_json = json.dumps(test_questions, ensure_ascii=False)
+        row.status = "ready"
+        row.mastery = max(row.mastery, 35)
+        await self.session.flush()
+        return row
+
+    def get_topic_sections(self, row: TopicRow) -> list[dict[str, str]]:
+        if not row.content_json:
+            return []
+        try:
+            data = json.loads(row.content_json)
+            if isinstance(data, list):
+                return [x for x in data if isinstance(x, dict)]
+        except Exception:
+            return []
+        return []
+
+    def get_topic_test(self, row: TopicRow) -> list[dict[str, object]]:
+        if not row.test_json:
+            return []
+        try:
+            data = json.loads(row.test_json)
+            if isinstance(data, list):
+                return [x for x in data if isinstance(x, dict)]
+        except Exception:
+            return []
+        return []
 
     async def list_recent(self, user_id: int, limit: int = 10) -> list[TopicRow]:
         stmt = (

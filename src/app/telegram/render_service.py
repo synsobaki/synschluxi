@@ -67,11 +67,13 @@ class RenderService:
         is_active = await UserRepo(session).is_active(user_id)
         topics = await TopicRepo(session).list_recent(user_id, limit=100)
         avg = int(sum(t.mastery for t in topics) / len(topics)) if topics else 0
+        expires = user.key_expires_at.strftime("%d.%m.%Y") if user.key_expires_at else None
 
         text = screens.profile_text(
             first_name=first_name,
             is_active=is_active,
             masked_key=mask_key(user.active_key) if user.active_key else None,
+            expires_at=expires,
             topics_studied=len(topics),
             avg_result=avg,
         )
@@ -93,8 +95,15 @@ class RenderService:
     async def show_archive(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "archive", push_history=push_history)
         topics = await TopicRepo(session).list_recent(user_id)
-        items = [f"{t.title} — {t.mastery}%" for t in topics]
-        await self._render(session, chat_id, user_id, screens.archive_text(items), keyboards.archive_kb())
+        status_map = {
+            "mastered": "🟢 Освоено",
+            "ready": "🟡 В процессе",
+            "in_progress": "🟡 В процессе",
+            "draft": "🔴 Требует внимания",
+        }
+        items = [f"• {t.title}\n  {status_map.get(t.status, '🟡 В процессе')} · прогресс {t.mastery}%" for t in topics]
+        topic_id = topics[0].id if topics else None
+        await self._render(session, chat_id, user_id, screens.archive_text(items), keyboards.archive_kb(topic_id=topic_id))
 
     async def show_topic_title_input(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "topic_title_input", push_history=push_history)
@@ -109,18 +118,79 @@ class RenderService:
         await self._set_screen(session, user_id, "topic_plan", push_history=push_history)
         await self._render(session, chat_id, user_id, screens.topic_plan_text(title), keyboards.topic_plan_kb(topic_id))
 
-    async def show_generation_status(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
+    async def show_generation_status(self, session: AsyncSession, chat_id: int, user_id: int, step: int = 0, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "generation", push_history=push_history)
-        await self._render(session, chat_id, user_id, screens.generation_status_text(), kb=None)
+        await self._render(session, chat_id, user_id, screens.generation_status_text(step=step), kb=None)
 
-    async def show_topic_card(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, push_history: bool = True, **_) -> None:
+    async def show_topic_card(
+        self,
+        session: AsyncSession,
+        chat_id: int,
+        user_id: int,
+        topic_id: int,
+        section_idx: int = 0,
+        push_history: bool = True,
+        **_,
+    ) -> None:
         await self._set_screen(session, user_id, "topic_card", push_history=push_history)
-        topic = await TopicRepo(session).get_by_id(user_id, int(topic_id))
+        repo = TopicRepo(session)
+        topic = await repo.get_by_id(user_id, int(topic_id))
         if not topic:
             await self.show_archive(session, chat_id, user_id, push_history=False)
             return
-        text = screens.topic_card_text(topic.title, topic.fmt, topic.status, topic.mastery)
-        await self._render(session, chat_id, user_id, text, keyboards.topic_card_kb(topic.id))
+        sections = repo.get_topic_sections(topic)
+        if not sections:
+            sections = [{"title": "Материал готовится", "body": "Содержимое темы пока недоступно."}]
+        idx = max(0, min(section_idx, len(sections) - 1))
+        current = sections[idx]
+        status_map = {"ready": "✅ Готово", "mastered": "🟢 Освоено", "in_progress": "🟡 В процессе", "draft": "⚪ Черновик"}
+        text = screens.topic_card_text(
+            title=topic.title,
+            fmt=topic.fmt,
+            status=status_map.get(topic.status, topic.status),
+            section_title=current.get("title", "Раздел"),
+            section_body=current.get("body", ""),
+            section_idx=idx,
+            total_sections=len(sections),
+        )
+        await self._render(
+            session,
+            chat_id,
+            user_id,
+            text,
+            keyboards.topic_card_kb(topic.id, has_many_sections=len(sections) > 1, section_idx=idx),
+        )
+
+    async def show_test_question(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, q_idx: int, push_history: bool = True, **_) -> None:
+        await self._set_screen(session, user_id, "test", push_history=push_history)
+        repo = TopicRepo(session)
+        topic = await repo.get_by_id(user_id, topic_id)
+        if not topic:
+            return await self.show_archive(session, chat_id, user_id, push_history=False)
+        test = repo.get_topic_test(topic)
+        if not test:
+            return await self.show_topic_card(session, chat_id, user_id, topic_id=topic_id, push_history=False)
+        idx = max(0, min(q_idx, len(test) - 1))
+        question = test[idx]
+        text = screens.test_question_text(topic.title, idx, len(test), str(question.get("question", "")))
+        options = [str(x) for x in question.get("options", [])]
+        await self._render(session, chat_id, user_id, text, keyboards.test_answers_kb(topic_id, options, idx))
+
+    async def show_test_result(
+        self,
+        session: AsyncSession,
+        chat_id: int,
+        user_id: int,
+        topic_id: int,
+        score: int,
+        total: int,
+        weak_section: str,
+        push_history: bool = True,
+        **_,
+    ) -> None:
+        await self._set_screen(session, user_id, "test_result", push_history=push_history)
+        text = screens.test_result_text(score=score, total=total, weak_section=weak_section)
+        await self._render(session, chat_id, user_id, text, keyboards.test_result_kb(topic_id))
 
     async def show_by_screen(self, session: AsyncSession, chat_id: int, user_id: int, screen: str, first_name: str = "", push_history: bool = False, **_) -> None:
         if screen == "menu":

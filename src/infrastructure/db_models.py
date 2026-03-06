@@ -121,4 +121,6 @@ class TopicRow(Base):
     fmt: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
     mastery: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    content_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    test_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
