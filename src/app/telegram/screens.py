@@ -5,7 +5,11 @@ def menu_text() -> str:
     return "UMKOVO\nИнтеллектуальная система освоения тем"
 
 
-def profile_text(first_name: str, is_active: bool, masked_key: str | None) -> str:
+def profile_text(
+    first_name: str = "",
+    is_active: bool = False,
+    masked_key: str | None = None,
+) -> str:
     status = "Активирован ✅" if is_active else "Не активирован ❌"
     key_line = masked_key or "—"
     return (
@@ -18,6 +22,14 @@ def profile_text(first_name: str, is_active: bool, masked_key: str | None) -> st
 
 def key_input_text() -> str:
     return "Введите ключ активации.\nПример: UMK-XXXX-XXXX"
+
+
+def key_request_text() -> str:
+    return "Запросить ключ можно у администратора по кнопке ниже."
+
+
+def archive_text() -> str:
+    return "Архив пока пуст. Когда появятся темы — они будут здесь."
 
 
 def topic_title_input_text() -> str:

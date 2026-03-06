@@ -3,6 +3,7 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from src.config import load_settings
 from src.utils.callbacks import pack, Act
 
 
@@ -21,10 +22,10 @@ def menu_kb(continue_topic: tuple[int, str] | None = None) -> InlineKeyboardMark
     return b.as_markup()
 
 
-def profile_kb(admin_url: str) -> InlineKeyboardMarkup:
+def profile_kb(admin_url: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="🔑 Ввести ключ", callback_data=pack(Act.KEY))
-    b.row(InlineKeyboardButton(text="📩 Запросить ключ", url=admin_url))
+    b.row(InlineKeyboardButton(text="📩 Запросить ключ", url=admin_url or load_settings().admin_url))
     b.button(text="🏠 В меню", callback_data=pack(Act.MENU))
     b.adjust(1)
     return b.as_markup()
@@ -36,6 +37,20 @@ def key_input_kb() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="◀ Назад", callback_data=pack(Act.BACK)),
         InlineKeyboardButton(text="🏠 В меню", callback_data=pack(Act.MENU)),
     )
+    return b.as_markup()
+
+
+def key_request_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="📩 Написать администратору", url=load_settings().admin_url))
+    b.row(InlineKeyboardButton(text="🏠 В меню", callback_data=pack(Act.MENU)))
+    return b.as_markup()
+
+
+def archive_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="🏠 В меню", callback_data=pack(Act.MENU))
+    b.adjust(1)
     return b.as_markup()
 
 

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,9 +22,9 @@ class UIStateRepo:
                 history_stack="",
                 main_message_id=None,
                 awaiting_input=None,
+                awaiting_meta_json=None,
             )
             self.session.add(row)
-            # flush не обязателен — commit сделает middleware
         return row
 
     async def set_main_message_id(self, user_id: int, message_id: int) -> None:
@@ -36,9 +37,10 @@ class UIStateRepo:
         row.current_screen = screen
         row.updated_at = datetime.utcnow()
 
-    async def set_awaiting(self, user_id: int, awaiting: Optional[str]) -> None:
+    async def set_awaiting(self, user_id: int, awaiting: Optional[str], meta: Optional[dict[str, Any]] = None) -> None:
         row = await self.get_or_create(user_id)
         row.awaiting_input = awaiting
+        row.awaiting_meta_json = json.dumps(meta, ensure_ascii=False) if meta is not None else None
         row.updated_at = datetime.utcnow()
 
     def _split_stack(self, s: Optional[str]) -> List[str]:
@@ -48,10 +50,6 @@ class UIStateRepo:
         return "|".join(items)
 
     async def push_history(self, user_id: int, screen: str) -> None:
-        """
-        В историю кладём ПРЕДЫДУЩИЙ экран.
-        Не кладём одинаковый подряд.
-        """
         row = await self.get_or_create(user_id)
         stack = self._split_stack(row.history_stack)
 
@@ -63,9 +61,6 @@ class UIStateRepo:
         row.updated_at = datetime.utcnow()
 
     async def pop_history(self, user_id: int) -> Optional[str]:
-        """
-        Достаём последний экран (куда вернуться).
-        """
         row = await self.get_or_create(user_id)
         stack = self._split_stack(row.history_stack)
         if not stack:

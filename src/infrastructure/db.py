@@ -17,6 +17,9 @@ AsyncSessionLocal = sessionmaker(
     autocommit=False,
 )
 
+# Backward-compatible alias used by older imports in the project.
+async_sessionmaker = AsyncSessionLocal
+
 
 def get_engine() -> AsyncEngine:
     global _engine
@@ -53,3 +56,12 @@ async def init_db() -> None:
         from src.infrastructure import db_models  # noqa: F401
 
         await conn.run_sync(Base.metadata.create_all)
+
+        # Lightweight migration for old SQLite databases:
+        # add metadata field for awaiting state if it is missing.
+        cols = await conn.exec_driver_sql("PRAGMA table_info(ui_state);")
+        col_names = {row[1] for row in cols.fetchall()}
+        if "awaiting_meta_json" not in col_names:
+            await conn.exec_driver_sql(
+                "ALTER TABLE ui_state ADD COLUMN awaiting_meta_json TEXT"
+            )
