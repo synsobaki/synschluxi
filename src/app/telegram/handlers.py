@@ -309,11 +309,15 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
             await message.answer("Введи число активаций (1..10000).")
             return
 
-        try:
-            meta = json.loads(ui.awaiting_meta_json or "{}")
-            if not isinstance(meta, dict):
+        raw_meta = ui.awaiting_meta_json
+        if raw_meta:
+            try:
+                meta = json.loads(raw_meta)
+                if not isinstance(meta, dict):
+                    meta = {}
+            except Exception:
                 meta = {}
-        except Exception:
+        else:
             meta = {}
 
         days = int(meta.get("days", 0))

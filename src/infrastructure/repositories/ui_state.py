@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, List
+import json
+from typing import Any, Optional, List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,7 @@ class UIStateRepo:
                 history_stack="",
                 main_message_id=None,
                 awaiting_input=None,
+                awaiting_meta_json=None,
             )
             self.session.add(row)
             # flush не обязателен — commit сделает middleware
@@ -36,9 +38,15 @@ class UIStateRepo:
         row.current_screen = screen
         row.updated_at = datetime.utcnow()
 
-    async def set_awaiting(self, user_id: int, awaiting: Optional[str]) -> None:
+    async def set_awaiting(
+        self,
+        user_id: int,
+        awaiting: Optional[str],
+        meta: Optional[dict[str, Any]] = None,
+    ) -> None:
         row = await self.get_or_create(user_id)
         row.awaiting_input = awaiting
+        row.awaiting_meta_json = json.dumps(meta, ensure_ascii=False) if meta is not None else None
         row.updated_at = datetime.utcnow()
 
     def _split_stack(self, s: Optional[str]) -> List[str]:
