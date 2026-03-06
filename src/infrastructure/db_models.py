@@ -58,6 +58,8 @@ class UserRow(Base):
 
     first_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
+    username: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
     active_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     key_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -107,6 +109,19 @@ class KeyRow(Base):
         DateTime,
         nullable=True,
     )
+
+    key_type: Mapped[str] = mapped_column(String(32), nullable=False, default="multi")
+
+    is_disabled: Mapped[bool] = mapped_column(Integer, nullable=False, default=0)
+
+
+class KeyActivationRow(Base):
+    __tablename__ = "key_activations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    activated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 # =========================
