@@ -30,6 +30,11 @@ class UIStateRow(Base):
         nullable=True,
     )
 
+    awaiting_meta_json: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
     history_stack: Mapped[str] = mapped_column(
         Text,
         nullable=False,
