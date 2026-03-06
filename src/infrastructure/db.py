@@ -17,6 +17,9 @@ AsyncSessionLocal = sessionmaker(
     autocommit=False,
 )
 
+# Backward-compatible alias used by the app entrypoint/middlewares.
+async_sessionmaker = AsyncSessionLocal
+
 
 def get_engine() -> AsyncEngine:
     global _engine
