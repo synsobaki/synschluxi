@@ -72,3 +72,16 @@ async def init_db() -> None:
             await conn.exec_driver_sql(
                 "ALTER TABLE ui_state ADD COLUMN history_stack TEXT NOT NULL DEFAULT ''"
             )
+
+        topics_info = await conn.exec_driver_sql("PRAGMA table_info('topics')")
+        existing_columns = {row[1] for row in topics_info.fetchall()}
+
+        if "content_json" not in existing_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE topics ADD COLUMN content_json TEXT"
+            )
+
+        if "test_json" not in existing_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE topics ADD COLUMN test_json TEXT"
+            )

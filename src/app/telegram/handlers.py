@@ -32,6 +32,48 @@ def _is_admin(user_id: int) -> bool:
         return False
 
 
+def _build_sections(title: str, fmt: str) -> list[dict[str, str]]:
+    style = {
+        "short": "кратко и по сути",
+        "full": "подробно с пояснениями",
+        "cheat": "в формате шпаргалки",
+        "simple": "простым языком",
+    }.get(fmt, "структурированно")
+    return [
+        {"title": "Базовая идея", "body": f"{title} — это тема, которую удобно изучать {style}. Начни с определения и целей применения."},
+        {"title": "Ключевые понятия", "body": "Выдели 3–5 терминов, от которых зависит понимание всей темы, и закрепи их короткими примерами."},
+        {"title": "Алгоритм применения", "body": "1) Определи входные данные.\n2) Выбери метод.\n3) Выполни шаги решения.\n4) Проверь результат."},
+        {"title": "Типичные ошибки", "body": "Чаще всего путают определения, пропускают проверки и забывают про граничные случаи."},
+        {"title": "Итог", "body": f"Если ты можешь объяснить тему «{title}» своими словами и решить базовую задачу — материал освоен."},
+    ]
+
+
+def _build_test(title: str) -> list[dict[str, object]]:
+    return [
+        {
+            "question": f"Что является первым шагом при изучении темы «{title}»?",
+            "options": ["Сразу решать сложные задачи", "Понять базовые определения", "Пропустить теорию", "Учить без структуры"],
+            "correct": 1,
+            "explanation": "Сначала нужно понять ключевые определения: это фундамент для дальнейших шагов.",
+            "section": "Базовая идея",
+        },
+        {
+            "question": "Что лучше всего помогает закрепить материал?",
+            "options": ["Повторение и практика", "Только чтение", "Только видео", "Игнорирование ошибок"],
+            "correct": 0,
+            "explanation": "Повторение + практика формируют устойчивое понимание.",
+            "section": "Ключевые понятия",
+        },
+        {
+            "question": "Зачем нужна проверка результата?",
+            "options": ["Не нужна", "Чтобы убедиться в корректности решения", "Только для отчёта", "Чтобы потратить время"],
+            "correct": 1,
+            "explanation": "Проверка снижает риск ошибок и закрепляет алгоритм.",
+            "section": "Алгоритм применения",
+        },
+    ]
+
+
 async def _safe_render_call(render: Any, method: str, *args, **kwargs):
     fn = getattr(render, method, None)
     if not fn:
@@ -168,6 +210,11 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
             return
         await _safe_render_call(render, "show_archive", session, chat_id, user_id)
         return
+    if cb.section == "topic" and cb.action == "section":
+        raw = cb.value.split("|", 1)
+        topic_id, idx = int(raw[0]), int(raw[1])
+        await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=topic_id, section_idx=idx, push_history=False)
+        return
     if cb.section == "topic" and cb.action == "format":
         raw = cb.value.split("|", 1)
         topic_id, fmt = int(raw[0]), raw[1]
@@ -180,8 +227,68 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         await _safe_render_call(render, "show_topic_plan", session, chat_id, user_id, topic_id=topic_id, title=topic.title)
         return
     if cb.section == "topic" and cb.action == "generate":
-        await _safe_render_call(render, "show_generation_status", session, chat_id, user_id)
-        await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=int(cb.value), push_history=False)
+        topic_id = int(cb.value)
+        repo = TopicRepo(session)
+        topic = await repo.get_by_id(user_id, topic_id)
+        if not topic:
+            return await _safe_render_call(render, "show_archive", session, chat_id, user_id)
+        for step in range(5):
+            await _safe_render_call(render, "show_generation_status", session, chat_id, user_id, step=step, push_history=(step == 0))
+        sections = _build_sections(topic.title, topic.fmt)
+        test = _build_test(topic.title)
+        await repo.save_generated_material(user_id=user_id, topic_id=topic_id, content_sections=sections, test_questions=test)
+        await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=topic_id, push_history=False)
+        return
+    if cb.section == "topic" and cb.action == "improve":
+        topic_id = int(cb.value)
+        repo = TopicRepo(session)
+        topic = await repo.get_by_id(user_id, topic_id)
+        if not topic:
+            return await _safe_render_call(render, "show_archive", session, chat_id, user_id)
+        sections = _build_sections(topic.title, "full")
+        await repo.save_generated_material(user_id=user_id, topic_id=topic_id, content_sections=sections, test_questions=repo.get_topic_test(topic) or _build_test(topic.title))
+        await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=topic_id, push_history=False)
+        return
+
+    if cb.section == "test" and cb.action == "start":
+        topic_id = int(cb.value)
+        await ui_repo.set_awaiting(user_id, "test", meta={"topic_id": topic_id, "q_idx": 0, "score": 0})
+        await _safe_render_call(render, "show_test_question", session, chat_id, user_id, topic_id=topic_id, q_idx=0)
+        return
+
+    if cb.section == "test" and cb.action == "answer":
+        raw = cb.value.split("|", 2)
+        topic_id, q_idx, answer_idx = int(raw[0]), int(raw[1]), int(raw[2])
+        topic = await TopicRepo(session).get_by_id(user_id, topic_id)
+        if not topic:
+            return await _safe_render_call(render, "show_archive", session, chat_id, user_id)
+
+        test = TopicRepo(session).get_topic_test(topic)
+        if not test:
+            return await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=topic_id)
+
+        state = await ui_repo.get_or_create(user_id)
+        meta = json.loads(state.awaiting_meta_json or "{}")
+        score = int(meta.get("score", 0))
+
+        question = test[q_idx]
+        correct = int(question.get("correct", -1)) == answer_idx
+        if correct:
+            score += 1
+        await cq.answer("Верно!" if correct else "Есть ошибка")
+
+        next_idx = q_idx + 1
+        if next_idx >= len(test):
+            weak = "Типичные ошибки" if score == len(test) else str(question.get("section", "Ключевые понятия"))
+            mastery = min(100, max(40, int(score * 100 / len(test))))
+            status = "mastered" if mastery >= 80 else "ready"
+            await TopicRepo(session).set_status(user_id, topic_id, status=status, mastery=mastery)
+            await ui_repo.set_awaiting(user_id, None)
+            await _safe_render_call(render, "show_test_result", session, chat_id, user_id, topic_id=topic_id, score=score, total=len(test), weak_section=weak)
+            return
+
+        await ui_repo.set_awaiting(user_id, "test", meta={"topic_id": topic_id, "q_idx": next_idx, "score": score})
+        await _safe_render_call(render, "show_test_question", session, chat_id, user_id, topic_id=topic_id, q_idx=next_idx, push_history=False)
         return
 
     await _safe_render_call(render, "show_menu", session, chat_id, user_id)
