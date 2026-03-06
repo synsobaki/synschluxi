@@ -6,8 +6,16 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from src.utils.callbacks import pack, Act
 
 
-def menu_kb(continue_topic: tuple[int, str] | None = None) -> InlineKeyboardMarkup:
+def menu_kb(
+    continue_topic: tuple[int, str] | None = None,
+    is_active: bool = True,
+) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
+
+    if not is_active:
+        b.button(text="👤 Профиль", callback_data=pack(Act.PROF))
+        b.adjust(1)
+        return b.as_markup()
 
     if continue_topic:
         topic_id, title = continue_topic

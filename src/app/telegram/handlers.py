@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import load_settings
 from src.infrastructure.repositories.ui_state import UIStateRepo
 from src.infrastructure.repositories.keys import KeysRepo
+from src.infrastructure.repositories.users import UserRepo
 from src.services.keygen_service import generate_key
 
 from src.app.telegram.admin_kb import admin_panel_kb, admin_days_kb, admin_uses_kb
@@ -120,8 +121,21 @@ async def on_start(message: Message, session: AsyncSession, render: Any):
     # чтобы отправить новое меню-сообщение в низ чата.
     await ui_repo.set_main_message_id(user_id, None)
 
-    # показываем главное меню one-screen
-    await _safe_render_call(render, "show_menu", session, chat_id, user_id)
+    user_repo = UserRepo(session)
+    is_active = await user_repo.is_active(user_id)
+
+    if is_active:
+        await _safe_render_call(render, "show_menu", session, chat_id, user_id)
+        return
+
+    await _safe_render_call(
+        render,
+        "show_profile",
+        session,
+        chat_id,
+        user_id,
+        first_name=(message.from_user.first_name or ""),
+    )
 
 
 @router.message(Command("admin"))
@@ -145,6 +159,8 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
 
     ui_repo = UIStateRepo(session)
     await ui_repo.get_or_create(user_id)
+    user_repo = UserRepo(session)
+    is_active = await user_repo.is_active(user_id)
 
     # ---------------------------
     # ADMIN FLOW (adm:*)
@@ -240,10 +256,32 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
             return
 
         if act == "ARCH":
+            if not is_active:
+                await cq.message.answer("🔒 Архив доступен только после активации ключа.")
+                await _safe_render_call(
+                    render,
+                    "show_profile",
+                    session,
+                    chat_id,
+                    user_id,
+                    first_name=(cq.from_user.first_name or ""),
+                )
+                return
             await _safe_render_call(render, "show_archive", session, chat_id, user_id)
             return
 
         if act == "NEW":
+            if not is_active:
+                await cq.message.answer("🔒 Создание конспекта доступно только после активации ключа.")
+                await _safe_render_call(
+                    render,
+                    "show_profile",
+                    session,
+                    chat_id,
+                    user_id,
+                    first_name=(cq.from_user.first_name or ""),
+                )
+                return
             # если у тебя первый шаг — запросить тему текстом:
             await ui_repo.set_awaiting(user_id, "topic_title")
             await cq.message.answer("Напиши тему для конспекта (например: «Интерфейсы в Java»):")
@@ -277,6 +315,16 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
             return
 
         if act in ("CONT", "TOPIC"):
+            if not is_active:
+                await _safe_render_call(
+                    render,
+                    "show_profile",
+                    session,
+                    chat_id,
+                    user_id,
+                    first_name=(cq.from_user.first_name or ""),
+                )
+                return
             topic_id = cb.p1
             r = await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=topic_id)
             if r is not None:
@@ -285,6 +333,16 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
             return
 
         if act == "FMT":
+            if not is_active:
+                await _safe_render_call(
+                    render,
+                    "show_profile",
+                    session,
+                    chat_id,
+                    user_id,
+                    first_name=(cq.from_user.first_name or ""),
+                )
+                return
             topic_id = cb.p1
             fmt = cb.p2
             r = await _safe_render_call(
@@ -316,6 +374,9 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         await _safe_render_call(render, "show_profile", session, chat_id, user_id, first_name=(cq.from_user.first_name or ""))
         return
     if simp == "archive":
+        if not is_active:
+            await _safe_render_call(render, "show_profile", session, chat_id, user_id, first_name=(cq.from_user.first_name or ""))
+            return
         await _safe_render_call(render, "show_archive", session, chat_id, user_id)
         return
 
@@ -338,6 +399,7 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
 
     ui_repo = UIStateRepo(session)
     ui = await ui_repo.get_or_create(user_id)
+    user_repo = UserRepo(session)
 
     # ---------------------------
     # ADMIN: custom days
@@ -429,6 +491,17 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
     # USER: ввод темы (первый шаг создания)
     # ---------------------------
     if ui.awaiting_input == "topic_title":
+        if not await user_repo.is_active(user_id):
+            await ui_repo.set_awaiting(user_id, None)
+            await _safe_render_call(
+                render,
+                "show_profile",
+                session,
+                chat_id,
+                user_id,
+                first_name=(message.from_user.first_name or ""),
+            )
+            return
         title = text
         if len(title) < 3:
             await message.answer("Слишком коротко. Напиши тему чуть подробнее 🙂")

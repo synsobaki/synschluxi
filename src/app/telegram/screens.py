@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 
-def menu_text() -> str:
-    return "UMKOVO\nИнтеллектуальная система освоения тем"
+def menu_text(is_active: bool = True) -> str:
+    if is_active:
+        return "UMKOVO\nИнтеллектуальная система освоения тем"
+    return (
+        "UMKOVO\n"
+        "Доступ к функциям закрыт до активации ключа.\n"
+        "Открой профиль и введи ключ."
+    )
 
 
 def profile_text(first_name: str, is_active: bool, masked_key: str | None) -> str:

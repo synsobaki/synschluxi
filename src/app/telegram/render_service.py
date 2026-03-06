@@ -6,6 +6,8 @@ from typing import Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.repositories.ui_state import UIStateRepo
+from src.infrastructure.repositories.users import UserRepo
+from src.services.access_service import mask_key
 from src.app.telegram.one_screen import OneScreen
 from src.app.telegram import screens, keyboards
 
@@ -81,8 +83,9 @@ class RenderService:
         **_,
     ) -> None:
         await self._set_screen(session, user_id, "menu", push_history=push_history)
-        text = screens.menu_text()
-        kb = keyboards.menu_kb()
+        is_active = await UserRepo(session).is_active(user_id)
+        text = screens.menu_text(is_active=is_active)
+        kb = keyboards.menu_kb(is_active=is_active)
         await self._render(session, chat_id, user_id, text, kb)
 
     async def show_profile(
@@ -96,11 +99,13 @@ class RenderService:
     ) -> None:
         await self._set_screen(session, user_id, "profile", push_history=push_history)
 
-        # Пока показываем дефолтный профиль без привязки к ключу.
+        user = await UserRepo(session).get_or_create(user_id)
+        is_active = await UserRepo(session).is_active(user_id)
+
         text = screens.profile_text(
             first_name=first_name,
-            is_active=False,
-            masked_key=None,
+            is_active=is_active,
+            masked_key=mask_key(user.active_key) if user.active_key else None,
         )
 
         admin_url = getattr(self.settings, "admin_url", None) or "https://t.me/umkovo_support"
