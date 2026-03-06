@@ -37,16 +37,18 @@ class RenderService:
     async def _render(self, session: AsyncSession, chat_id: int, user_id: int, text: str, kb) -> None:
         ui_repo = UIStateRepo(session)
         ui = await ui_repo.get_or_create(user_id)
-
-        res = await self.one_screen.render(
-            chat_id=chat_id,
-            main_message_id=ui.main_message_id,
-            text=text,
-            keyboard=kb,
-        )
-
+        res = await self.one_screen.render(chat_id=chat_id, main_message_id=ui.main_message_id, text=text, keyboard=kb)
         if ui.main_message_id != res.message_id:
             await ui_repo.set_main_message_id(user_id, res.message_id)
+
+    async def show_access_gate(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
+        await self._set_screen(session, user_id, "access_gate", push_history=push_history)
+        await UIStateRepo(session).set_awaiting(user_id, "key")
+        await self._render(session, chat_id, user_id, screens.access_gate_text(), keyboards.access_gate_kb())
+
+    async def show_request_key(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
+        await self._set_screen(session, user_id, "key_request", push_history=push_history)
+        await self._render(session, chat_id, user_id, screens.request_key_text(), keyboards.key_request_kb())
 
     async def show_menu(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "menu", push_history=push_history)
@@ -56,60 +58,28 @@ class RenderService:
             candidate = await TopicRepo(session).get_continue_candidate(user_id)
             if candidate:
                 continue_topic = (candidate.id, candidate.title)
-        text = screens.menu_text(is_active=is_active)
-        kb = keyboards.menu_kb(continue_topic=continue_topic, is_active=is_active)
-        await self._render(session, chat_id, user_id, text, kb)
+        await self._render(session, chat_id, user_id, screens.menu_text(is_active=is_active), keyboards.menu_kb(continue_topic, is_active=is_active))
 
     async def show_profile(self, session: AsyncSession, chat_id: int, user_id: int, first_name: str = "", push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "profile", push_history=push_history)
-
         user = await UserRepo(session).get_or_create(user_id)
         is_active = await UserRepo(session).is_active(user_id)
         topics = await TopicRepo(session).list_recent(user_id, limit=100)
         avg = int(sum(t.mastery for t in topics) / len(topics)) if topics else 0
         expires = user.key_expires_at.strftime("%d.%m.%Y") if user.key_expires_at else None
-
-        text = screens.profile_text(
-            first_name=first_name,
-            is_active=is_active,
-            masked_key=mask_key(user.active_key) if user.active_key else None,
-            expires_at=expires,
-            topics_studied=len(topics),
-            avg_result=avg,
-        )
-
-        admin_url = getattr(self.settings, "admin_url", None) or "https://t.me/umkovo_support"
-        kb = keyboards.profile_kb(admin_url=admin_url)
-        await self._render(session, chat_id, user_id, text, kb)
+        text = screens.profile_text(first_name, is_active, mask_key(user.active_key) if user.active_key else None, expires, len(topics), avg)
+        await self._render(session, chat_id, user_id, text, keyboards.profile_kb(admin_url=""))
 
     async def show_key_input(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
-        await self._set_screen(session, user_id, "key_input", push_history=push_history)
-        await UIStateRepo(session).set_awaiting(user_id, "key")
-        await self._render(session, chat_id, user_id, screens.key_input_text(), keyboards.key_input_kb())
+        return await self.show_access_gate(session, chat_id, user_id, push_history=push_history)
 
     async def show_key_request(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
-        await self._set_screen(session, user_id, "key_request", push_history=push_history)
-        await self._render(session, chat_id, user_id, screens.key_request_text(), keyboards.key_request_kb())
+        return await self.show_request_key(session, chat_id, user_id, push_history=push_history)
 
-    async def show_archive(self, session: AsyncSession, chat_id: int, user_id: int, page: int = 0, push_history: bool = True, **_) -> None:
-        await self._set_screen(session, user_id, "archive", push_history=push_history)
-        topics, total = await TopicRepo(session).list_page(user_id, page=page, page_size=5)
-        total_pages = (total + 4) // 5 if total else 1
-        status_map = {
-            "mastered": "освоено",
-            "ready": "в процессе",
-            "in_progress": "в процессе",
-            "draft": "черновик",
-        }
-        items = [f"• {t.title} | {getattr(t, 'category', 'Общее')} | {status_map.get(t.status, 'в процессе')} | {t.mastery}%" for t in topics]
-        topic_id = topics[0].id if topics else None
-        await self._render(
-            session,
-            chat_id,
-            user_id,
-            screens.archive_text(items, page=page, total_pages=total_pages),
-            keyboards.archive_kb(topic_id=topic_id, page=page, has_prev=page > 0, has_next=page + 1 < total_pages),
-        )
+    async def show_topic_input(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
+        await self._set_screen(session, user_id, "topic_input", push_history=push_history)
+        await UIStateRepo(session).set_awaiting(user_id, "topic_title")
+        await self._render(session, chat_id, user_id, screens.topic_input_text(), keyboards.topic_title_input_kb())
 
     async def show_topic_title_input(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "topic_title_input", push_history=push_history)
@@ -120,120 +90,89 @@ class RenderService:
         await self._set_screen(session, user_id, "topic_format", push_history=push_history)
         await self._render(session, chat_id, user_id, screens.format_pick_text(title), keyboards.format_pick_kb(topic_id))
 
-    async def show_topic_plan(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, title: str, push_history: bool = True, **_) -> None:
+    async def show_plan_preview(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, title: str, plan: list[str], push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "topic_plan", push_history=push_history)
-        await self._render(session, chat_id, user_id, screens.topic_plan_text(title), keyboards.topic_plan_kb(topic_id))
+        await self._render(session, chat_id, user_id, screens.topic_plan_text(title, plan), keyboards.topic_plan_kb(topic_id))
+
+    async def show_topic_plan(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, title: str, push_history: bool = True, **_) -> None:
+        return await self.show_plan_preview(session, chat_id, user_id, topic_id, title, plan=[], push_history=push_history)
 
     async def show_generation_status(self, session: AsyncSession, chat_id: int, user_id: int, step: int = 0, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "generation", push_history=push_history)
-        await self._render(session, chat_id, user_id, screens.generation_status_text(step=step), kb=None)
+        await self._render(session, chat_id, user_id, screens.generation_status_text(step), kb=None)
 
-    async def show_topic_card(
-        self,
-        session: AsyncSession,
-        chat_id: int,
-        user_id: int,
-        topic_id: int,
-        section_idx: int = 0,
-        push_history: bool = True,
-        **_,
-    ) -> None:
+    async def show_summary_section(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, section_idx: int = 0, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "topic_card", push_history=push_history)
         repo = TopicRepo(session)
         topic = await repo.get_by_id(user_id, int(topic_id))
         if not topic:
-            await self.show_archive(session, chat_id, user_id, push_history=False)
-            return
-        sections = repo.get_topic_sections(topic)
-        if not sections:
-            sections = [{"title": "Материал готовится", "body": "Содержимое темы пока недоступно."}]
+            return await self.show_works_list(session, chat_id, user_id, push_history=False)
+        sections = repo.get_topic_sections(topic) or [{"title": "Материал готовится", "body": "Содержимое темы пока недоступно."}]
         idx = max(0, min(section_idx, len(sections) - 1))
+        await repo.set_active_section(user_id, topic_id, idx)
         current = sections[idx]
-        status_map = {"ready": "✅ Готово", "mastered": "🟢 Освоено", "in_progress": "🟡 В процессе", "draft": "⚪ Черновик"}
-        text = screens.topic_card_text(
-            title=topic.title,
-            fmt=topic.fmt,
-            status=status_map.get(topic.status, topic.status),
-            section_title=current.get("title", "Раздел"),
-            section_body=current.get("body", ""),
-            section_idx=idx,
-            total_sections=len(sections),
-        )
-        await self._render(
-            session,
-            chat_id,
-            user_id,
-            text,
-            keyboards.topic_card_kb(topic.id, has_many_sections=len(sections) > 1, section_idx=idx, at_last_section=(idx == len(sections) - 1)),
-        )
+        text = screens.summary_section_text(topic.title, topic.fmt or "базовый", topic.status, current.get("title", "Раздел"), current.get("body", ""), idx, len(sections))
+        await self._render(session, chat_id, user_id, text, keyboards.topic_card_kb(topic.id, len(sections) > 1, idx, idx == len(sections)-1))
+
+    async def show_topic_card(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, section_idx: int = 0, push_history: bool = True, **_) -> None:
+        return await self.show_summary_section(session, chat_id, user_id, topic_id, section_idx, push_history)
+
+    async def show_summary_edit_actions(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, push_history: bool = True, **_) -> None:
+        await self._set_screen(session, user_id, "topic_edit", push_history=push_history)
+        await self._render(session, chat_id, user_id, "Как изменить текущий раздел?", keyboards.topic_edit_kb(topic_id))
+
+    async def show_topic_edit(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, push_history: bool = True, **_) -> None:
+        return await self.show_summary_edit_actions(session, chat_id, user_id, topic_id, push_history)
+
+    async def show_works_list(self, session: AsyncSession, chat_id: int, user_id: int, page: int = 0, push_history: bool = True, **_) -> None:
+        await self._set_screen(session, user_id, "works", push_history=push_history)
+        topics, total = await TopicRepo(session).list_page(user_id, page=page, page_size=5)
+        total_pages = (total + 4) // 5 if total else 1
+        items = [f"• {t.title} | {t.category} | {t.status}" for t in topics]
+        await self._render(session, chat_id, user_id, screens.works_text(items, page, total_pages), keyboards.works_kb(topics, page, total_pages))
+
+    async def show_archive(self, session: AsyncSession, chat_id: int, user_id: int, page: int = 0, push_history: bool = True, **_) -> None:
+        return await self.show_works_list(session, chat_id, user_id, page, push_history)
 
     async def show_test_question(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, q_idx: int, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "test", push_history=push_history)
         repo = TopicRepo(session)
         topic = await repo.get_by_id(user_id, topic_id)
         if not topic:
-            return await self.show_archive(session, chat_id, user_id, push_history=False)
+            return await self.show_works_list(session, chat_id, user_id, push_history=False)
         test = repo.get_topic_test(topic)
-        if not test:
-            return await self.show_topic_card(session, chat_id, user_id, topic_id=topic_id, push_history=False)
         idx = max(0, min(q_idx, len(test) - 1))
         question = test[idx]
-        text = screens.test_question_text(topic.title, idx, len(test), str(question.get("question", "")))
-        options = [str(x) for x in question.get("options", [])]
-        await self._render(session, chat_id, user_id, text, keyboards.test_answers_kb(topic_id, options, idx))
+        await self._render(session, chat_id, user_id, screens.test_question_text(topic.title, idx, len(test), str(question.get("question", ""))), keyboards.test_answers_kb(topic_id, [str(x) for x in question.get("options", [])], idx))
 
-    async def show_test_result(
-        self,
-        session: AsyncSession,
-        chat_id: int,
-        user_id: int,
-        topic_id: int,
-        score: int,
-        total: int,
-        weak_section: str,
-        push_history: bool = True,
-        **_,
-    ) -> None:
+    async def show_test_result(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, score: int, total: int, weak_sections: list[str], push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "test_result", push_history=push_history)
-        text = screens.test_result_text(score=score, total=total, weak_section=weak_section)
-        await self._render(session, chat_id, user_id, text, keyboards.test_result_kb(topic_id))
+        await self._render(session, chat_id, user_id, screens.test_result_text(score, total, weak_sections), keyboards.test_result_kb(topic_id, weak_sections[0] if weak_sections else "0"))
 
-    async def show_topic_edit(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, push_history: bool = True, **_) -> None:
-        await self._set_screen(session, user_id, "topic_edit", push_history=push_history)
-        await self._render(session, chat_id, user_id, "Как изменить конспект?", keyboards.topic_edit_kb(topic_id))
-
-    async def show_weak_training(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, weak_section: str = "Ключевые понятия", push_history: bool = True, **_) -> None:
+    async def show_weak_section_training(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, weak_section: str, training_text: str, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "weak_training", push_history=push_history)
         topic = await TopicRepo(session).get_by_id(user_id, topic_id)
         if not topic:
-            return await self.show_archive(session, chat_id, user_id, push_history=False)
-        await self._render(session, chat_id, user_id, screens.weak_section_training_text(topic.title, weak_section), keyboards.test_result_kb(topic_id))
+            return await self.show_works_list(session, chat_id, user_id, push_history=False)
+        await self._render(session, chat_id, user_id, screens.weak_section_training_text(topic.title, weak_section, training_text), keyboards.test_result_kb(topic_id, weak_section))
 
-    async def show_topic_details(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, push_history: bool = True, **_) -> None:
-        await self._set_screen(session, user_id, "topic_details", push_history=push_history)
-        topic = await TopicRepo(session).get_by_id(user_id, topic_id)
-        if not topic:
-            return await self.show_archive(session, chat_id, user_id, push_history=False)
-        await self._render(session, chat_id, user_id, screens.topic_details_text(topic.title, topic.fmt or "не задан", topic.status, topic.mastery), keyboards.topic_details_kb(topic.id))
+    async def show_weak_training(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, weak_section: str = "Ключевые понятия", push_history: bool = True, **_) -> None:
+        return await self.show_weak_section_training(session, chat_id, user_id, topic_id, weak_section, "Повторите базовые определения и решите мини-пример.", push_history)
 
     async def show_file_upload(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "file_upload", push_history=push_history)
         await UIStateRepo(session).set_awaiting(user_id, "file_upload")
         await self._render(session, chat_id, user_id, screens.file_upload_text(), keyboards.file_upload_kb())
 
-    async def show_compress_settings(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, push_history: bool = True, **_) -> None:
-        await self._set_screen(session, user_id, "compress_settings", push_history=push_history)
-        await self._render(session, chat_id, user_id, screens.compress_settings_text(), keyboards.compress_mode_kb(topic_id))
-
     async def show_by_screen(self, session: AsyncSession, chat_id: int, user_id: int, screen: str, first_name: str = "", push_history: bool = False, **_) -> None:
         if screen == "menu":
             return await self.show_menu(session, chat_id, user_id, push_history=push_history)
         if screen == "profile":
             return await self.show_profile(session, chat_id, user_id, first_name=first_name, push_history=push_history)
-        if screen == "key_input":
-            return await self.show_key_input(session, chat_id, user_id, push_history=push_history)
-        if screen == "archive":
-            return await self.show_archive(session, chat_id, user_id, push_history=push_history)
+        if screen in {"key_input", "access_gate"}:
+            return await self.show_access_gate(session, chat_id, user_id, push_history=push_history)
+        if screen in {"archive", "works"}:
+            return await self.show_works_list(session, chat_id, user_id, push_history=push_history)
         if screen == "file_upload":
             return await self.show_file_upload(session, chat_id, user_id, push_history=push_history)
         return await self.show_menu(session, chat_id, user_id, push_history=push_history)
