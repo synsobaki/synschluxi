@@ -45,7 +45,7 @@ async def render_middleware(
 ):
     bot: Bot = data["bot"]
     one_screen = OneScreen(bot)
-    data["render"] = RenderService(one_screen=one_screen)
+    data["render"] = RenderService(one_screen=one_screen, settings=load_settings())
     return await handler(event, data)
 
 
