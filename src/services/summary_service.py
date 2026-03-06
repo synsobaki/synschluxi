@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from src.services.rag import RAGService
+from src.services.pdf_service import PDFService
 
 
 @dataclass
@@ -23,29 +25,38 @@ class SummaryService:
 
     def build_plan(self, source: SummarySource, mode: str) -> list[str]:
         _ = mode
+        if source.source_text:
+            chunks = [x.strip() for x in source.source_text.split("\n") if x.strip()]
+            if chunks:
+                return [x[:80] for x in chunks[:6]]
         return [
-            "Определение",
-            "Основные идеи",
-            "Алгоритм / механизм",
-            "Примеры",
+            "Что это и зачем нужно",
+            "Ключевые понятия",
+            "Как это работает",
+            "Практическое применение",
+            "Ошибки и как их избежать",
             "Итог",
         ]
 
+    def _sanitize_context(self, text: str) -> str:
+        cleaned = re.sub(r"```[\s\S]*?```", "", text)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned[:700]
+
     def generate_sections(self, plan: list[str], context: str, mode: str) -> list[dict[str, str]]:
         style = self.MODE_LABELS.get(mode, "структурированно")
+        ctx = self._sanitize_context(context)
         sections: list[dict[str, str]] = []
         for idx, title in enumerate(plan, start=1):
             body = (
-                f"{idx}. **{title}**\n"
-                f"_Разбираем тему {style}._\n\n"
-                f"Ключевая мысль: `{title}` в контексте темы.\n"
-                f"- Что важно понять\n"
-                f"- Где это применяется\n"
-                f"- На что обратить внимание\n\n"
-                f"Пример: короткий кейс по разделу «{title}»."
+                f"<i>Объяснение {style}.</i>\n\n"
+                f"• Суть: {title}.\n"
+                "• Что важно понять в этом разделе.\n"
+                "• Как применить знание на практике.\n"
+                "• Мини-проверка: попробуйте объяснить идею своими словами."
             )
-            if context:
-                body += f"\n\n```text\n{context[:500]}\n```"
+            if ctx:
+                body += f"\n\n<i>Контекст:</i> {ctx}"
             sections.append({"id": str(idx), "title": title, "body": body})
         return sections
 
@@ -53,14 +64,16 @@ class SummaryService:
         _ = mode
         if not sections:
             return sections
-        avg = max(250, int(sum(len(s.get("body", "")) for s in sections) / len(sections)))
+        words = [len((s.get("body") or "").split()) for s in sections]
+        avg = max(40, int(sum(words) / len(words)))
         balanced: list[dict[str, str]] = []
         for section in sections:
             body = section.get("body", "")
-            if len(body) > avg * 1.4:
-                body = body[: int(avg * 1.2)].rstrip() + "\n\n_Сокращено для баланса разделов._"
-            elif len(body) < avg * 0.5:
-                body += "\n\nДополнение: повторите термины и решите 1 мини-задачу по разделу."
+            ws = body.split()
+            if len(ws) > int(avg * 1.4):
+                body = " ".join(ws[: int(avg * 1.2)]) + "\n\n<i>Сокращено для равномерности.</i>"
+            elif len(ws) < int(avg * 0.6):
+                body += "\n\n• Дополнение: закрепите определение и разберите короткий пример."
             balanced.append({**section, "body": body})
         return balanced
 
@@ -69,18 +82,21 @@ class SummaryService:
         context = RAGService().build_context(source.title, source.source_text)
         sections = self.generate_sections(plan, context, mode)
         sections = self.rebalance_sections(sections, mode)
-        full = "\n\n".join([f"## {s['title']}\n{s['body']}" for s in sections])
+        full = "\n\n".join([f"{s['title']}\n{s['body']}" for s in sections])
         return full, sections
 
     def rewrite_section(self, section: dict[str, str], rewrite_mode: str) -> dict[str, str]:
         body = section.get("body", "")
         if rewrite_mode == "shorter":
-            body = " ".join(body.split()[:80])
+            body = " ".join(body.split()[:60])
         elif rewrite_mode == "longer":
-            body += "\n\nДополнительно: разберите два контрастных примера и проверьте себя вопросом «почему это работает?»."
+            body += "\n\n• Дополнительно: добавьте ещё один пример из практики."
         else:
-            body = f"Объяснение простыми словами:\n\n{body}"
+            body = f"<i>Объяснение проще:</i>\n\n{body}"
         return {**section, "body": body}
 
     def rewrite_summary(self, sections: list[dict[str, str]], rewrite_mode: str) -> list[dict[str, str]]:
         return [self.rewrite_section(section, rewrite_mode) for section in sections]
+
+    def export_pdf(self, title: str, fmt: str, sections: list[dict[str, str]]) -> bytes:
+        return PDFService().export_summary_pdf(title, fmt, sections)

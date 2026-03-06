@@ -66,12 +66,19 @@ class RenderService:
         is_active = await UserRepo(session).is_active(user_id)
         topics = await TopicRepo(session).list_recent(user_id, limit=100)
         avg = int(sum(t.mastery for t in topics) / len(topics)) if topics else 0
-        expires = user.key_expires_at.strftime("%d.%m.%Y") if user.key_expires_at else None
+        if user.key_expires_at:
+            expires = f"до {user.key_expires_at.strftime('%d.%m.%Y')}"
+        elif user.active_key:
+            expires = "бессрочный"
+        else:
+            expires = "бессрочный"
         text = screens.profile_text(first_name, is_active, mask_key(user.active_key) if user.active_key else None, expires, len(topics), avg)
         await self._render(session, chat_id, user_id, text, keyboards.profile_kb(admin_url=""))
 
     async def show_key_input(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
-        return await self.show_access_gate(session, chat_id, user_id, push_history=push_history)
+        await self._set_screen(session, user_id, "key_input", push_history=push_history)
+        await UIStateRepo(session).set_awaiting(user_id, "key")
+        await self._render(session, chat_id, user_id, screens.key_input_text(), keyboards.key_input_kb())
 
     async def show_key_request(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
         return await self.show_request_key(session, chat_id, user_id, push_history=push_history)
@@ -128,7 +135,7 @@ class RenderService:
         await self._set_screen(session, user_id, "works", push_history=push_history)
         topics, total = await TopicRepo(session).list_page(user_id, page=page, page_size=5)
         total_pages = (total + 4) // 5 if total else 1
-        items = [f"• {t.title} | {t.category} | {t.status}" for t in topics]
+        items = [f"{t.title} | {t.category} | {t.status}" for t in topics]
         await self._render(session, chat_id, user_id, screens.works_text(items, page, total_pages), keyboards.works_kb(topics, page, total_pages))
 
     async def show_archive(self, session: AsyncSession, chat_id: int, user_id: int, page: int = 0, push_history: bool = True, **_) -> None:
@@ -158,6 +165,21 @@ class RenderService:
 
     async def show_weak_training(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, weak_section: str = "Ключевые понятия", push_history: bool = True, **_) -> None:
         return await self.show_weak_section_training(session, chat_id, user_id, topic_id, weak_section, "Повторите базовые определения и решите мини-пример.", push_history)
+
+
+    async def show_test_review(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, idx: int = 0, push_history: bool = True, **_) -> None:
+        await self._set_screen(session, user_id, "test_review", push_history=push_history)
+        topic = await TopicRepo(session).get_by_id(user_id, topic_id)
+        if not topic:
+            return await self.show_works_list(session, chat_id, user_id, push_history=False)
+        from json import loads
+        raw = topic.latest_test_result or "{}"
+        data = loads(raw) if isinstance(raw, str) else (raw or {})
+        review = data.get("review", []) if isinstance(data, dict) else []
+        if not review:
+            return await self.show_test_result(session, chat_id, user_id, topic_id, 0, 0, [], push_history=False)
+        i = max(0, min(idx, len(review)-1))
+        await self._render(session, chat_id, user_id, screens.test_review_text(review[i], i, len(review)), keyboards.key_review_kb(topic_id, i, len(review)))
 
     async def show_file_upload(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "file_upload", push_history=push_history)
