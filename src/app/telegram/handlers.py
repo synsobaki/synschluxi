@@ -116,6 +116,9 @@ async def on_start(message: Message, session: AsyncSession, render: Any):
     ui_repo = UIStateRepo(session)
     await ui_repo.get_or_create(user_id)
     await ui_repo.set_awaiting(user_id, None)
+    # /start должен быть всегда видимым: сбрасываем one-screen якорь,
+    # чтобы отправить новое меню-сообщение в низ чата.
+    await ui_repo.set_main_message_id(user_id, None)
 
     # показываем главное меню one-screen
     await _safe_render_call(render, "show_menu", session, chat_id, user_id)
