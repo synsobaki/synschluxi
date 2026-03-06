@@ -1,23 +1,44 @@
 from __future__ import annotations
 
+import re
+
+from src.services.llm_service import LLMService
+
 
 class TestService:
+    def _extract_fact(self, body: str, fallback: str) -> str:
+        clean = re.sub(r"\s+", " ", (body or "")).strip()
+        if not clean:
+            return fallback
+        sentence = re.split(r"[.!?]", clean)[0].strip()
+        return sentence[:120] if sentence else fallback
+
     def generate_test_from_summary(self, summary_sections: list[dict[str, str]]) -> list[dict[str, object]]:
+        llm = LLMService()
+        if llm.enabled:
+            generated = llm.generate_test(summary_sections)
+            if generated:
+                return generated
+
         questions: list[dict[str, object]] = []
         for idx, section in enumerate(summary_sections, start=1):
             title = str(section.get("title", f"Раздел {idx}"))
+            fact = self._extract_fact(str(section.get("body", "")), f"{title} — важная часть темы")
+            options = [
+                f"{title} помогает понять тему глубже и применить знания на практике",
+                f"{title} не связан(а) с темой и его можно пропустить",
+                f"{title} нужен только для заучивания без понимания",
+                f"{title} используется только в теории и никогда в задачах",
+            ]
+            correct = idx % 4
+            rotated = options[correct:] + options[:correct]
             questions.append(
                 {
                     "id": idx,
-                    "question": f"Что лучше всего отражает смысл раздела «{title}»?",
-                    "options": [
-                        "Пропустить базовые определения",
-                        f"Понять основу раздела «{title}»",
-                        "Запомнить без понимания",
-                        "Искать ответ вне темы",
-                    ],
-                    "correct": 1,
-                    "explanation": f"Верный ответ привязан к содержанию раздела «{title}».",
+                    "question": f"Какое утверждение лучше всего описывает раздел «{title}»?",
+                    "options": rotated,
+                    "correct": 0,
+                    "explanation": f"Верный вариант отражает суть раздела: {fact}.",
                     "section_title": title,
                     "section_id": section.get("id", str(idx)),
                 }
@@ -53,11 +74,11 @@ class TestService:
         return (
             f"📖 Дообучение по теме «{topic_title}»\n\n"
             f"Слабый раздел: {weak_section.get('title', 'Раздел')}\n\n"
-            "Простое объяснение:\n"
-            f"{weak_section.get('body', '')[:700]}\n\n"
-            "Короткий план:\n"
-            "1) Повторите ключевой термин.\n"
-            "2) Разберите один простой пример.\n"
-            "3) Проверьте себя вопросом по сути раздела.\n\n"
+            "Понятное объяснение:\n"
+            f"{weak_section.get('body', '')[:900]}\n\n"
+            "Что сделать дальше:\n"
+            "1) Повторите определение раздела.\n"
+            "2) Разберите один пример.\n"
+            "3) Ответьте устно на контрольный вопрос.\n\n"
             f"Где были ошибки:\n{mistakes}"
         )

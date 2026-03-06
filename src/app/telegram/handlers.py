@@ -30,7 +30,6 @@ from src.app.telegram.admin_kb import (
     admin_uses_kb,
     admin_keys_menu_kb,
     admin_users_menu_kb,
-    admin_key_types_kb,
     admin_key_card_kb,
     admin_user_card_kb,
 )
@@ -138,7 +137,7 @@ async def on_start(message: Message, session: AsyncSession, render: Any):
 async def on_admin(message: Message, session: AsyncSession):
     if not _is_admin(message.from_user.id):
         return
-    await message.answer("🔐 Админ-панель", reply_markup=admin_panel_kb())
+    await message.answer("🔐 <b>Админ-панель UMKOVO</b>\n\nВыберите раздел:", reply_markup=admin_panel_kb())
 
 
 @router.callback_query()
@@ -168,13 +167,13 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         user_repo = UserRepo(session)
 
         if data == "adm:back:panel":
-            await cq.message.edit_text("🔐 Админ-панель", reply_markup=admin_panel_kb())
+            await cq.message.edit_text("🔐 <b>Админ-панель UMKOVO</b>\n\nВыберите раздел:", reply_markup=admin_panel_kb())
             return
         if data == "adm:keys:menu":
-            await cq.message.edit_text("🔑 Управление ключами", reply_markup=admin_keys_menu_kb())
+            await cq.message.edit_text("🗝 <b>Управление ключами</b>\n\nВыберите действие:", reply_markup=admin_keys_menu_kb())
             return
         if data == "adm:users:menu":
-            await cq.message.edit_text("👤 Управление пользователями", reply_markup=admin_users_menu_kb())
+            await cq.message.edit_text("👥 <b>Управление пользователями</b>\n\nВыберите действие:", reply_markup=admin_users_menu_kb())
             return
         if data == "adm:stats:menu":
             keys = await repo.list_keys(limit=500)
@@ -183,16 +182,8 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
             return
 
         if data == "adm:key:create":
-            await cq.message.edit_text("Выберите тип ключа:", reply_markup=admin_key_types_kb())
-            return
-        if data.startswith("adm:type:"):
-            key_type = data.split(":")[2]
-            if key_type == "lifetime":
-                await ui_repo.set_awaiting(user_id, "admin_create_lifetime_uses")
-                await cq.message.answer("Введите количество активаций для бессрочного ключа (1..10000):")
-                return
-            await ui_repo.set_awaiting(user_id, "admin_key_type", meta={"key_type": key_type})
-            await cq.message.edit_text("⏳ Выберите срок действия ключа:", reply_markup=admin_days_kb())
+            await ui_repo.set_awaiting(user_id, "admin_key_type", meta={"key_type": "multi"})
+            await cq.message.edit_text("⏳ Настройка ключа\n\nШаг 1/2: выберите срок действия:", reply_markup=admin_days_kb())
             return
 
         if data == "adm:key:list":
@@ -445,6 +436,26 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         plan = SummaryService().build_plan(SummarySource(title=topic.title, source_type=topic.source_type or "topic"), fmt)
         await _safe_render_call(render, "show_plan_preview", session, chat_id, user_id, topic_id=topic_id, title=topic.title, plan=plan)
         return
+    if cb.section == "topic" and cb.action == "plan_rebuild":
+        topic_id = int(cb.value)
+        repo = TopicRepo(session)
+        topic = await repo.get_by_id(user_id, topic_id)
+        if not topic:
+            return await _safe_render_call(render, "show_works_list", session, chat_id, user_id)
+        source_text = ""
+        ui_state = await ui_repo.get_or_create(user_id)
+        meta = json.loads(ui_state.awaiting_meta_json or "{}")
+        if ui_state.awaiting_input == "topic_file_mode" and int(meta.get("topic_id", 0)) == topic_id:
+            source_text = str(meta.get("source_text", ""))
+        source = SummarySource(
+            title=topic.title,
+            source_type=topic.source_type or "topic",
+            source_text=source_text,
+            file_name=topic.source_file_name,
+        )
+        plan = SummaryService().build_plan(source, topic.fmt or "brief")
+        await _safe_render_call(render, "show_plan_preview", session, chat_id, user_id, topic_id=topic_id, title=topic.title, plan=plan, push_history=False)
+        return
     if cb.section == "topic" and cb.action == "generate":
         topic_id = int(cb.value)
         repo = TopicRepo(session)
@@ -534,8 +545,8 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
             await ui_repo.set_awaiting(user_id, None)
             weak_sections = [weak] if weak else []
             await TopicRepo(session).set_test_feedback(user_id, topic_id, {"score": score, "total": len(test), "review": review}, weak)
-            await _safe_render_call(render, "show_test_result", session, chat_id, user_id, topic_id=topic_id, score=score, total=len(test), weak_sections=weak_sections)
             await ui_repo.set_awaiting(user_id, "weak_training", meta={"topic_id": topic_id, "weak": weak})
+            await _safe_render_call(render, "show_test_review", session, chat_id, user_id, topic_id=topic_id, idx=0)
             return
 
         await ui_repo.set_awaiting(user_id, "test", meta={"topic_id": topic_id, "q_idx": next_idx, "score": score, "weak": weak, "review": review})
@@ -631,20 +642,6 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
             await ui_repo.set_awaiting(user_id, "admin_key_type", meta={"key_type": key_type})
             return
 
-        if ui.awaiting_input == "admin_create_lifetime_uses":
-            try:
-                uses = int(text)
-                if uses < 1 or uses > 10000:
-                    raise ValueError
-            except Exception:
-                await message.answer("Введи число активаций (1..10000).")
-                return
-            key_value = generate_key()
-            created = await repo.create_key(value=key_value, days_valid=0, max_uses=uses, key_type="lifetime")
-            await ui_repo.set_awaiting(user_id, None)
-            await message.answer(f"✅ Ключ создан\nID: {created.id}\n<code>{created.value}</code>", reply_markup=admin_keys_menu_kb())
-            return
-
         if ui.awaiting_input == "admin_uses_custom":
             try:
                 uses = int(text)
@@ -655,18 +652,16 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
                 return
             days = int(meta.get("days", 0))
             key_type = meta.get("key_type", "multi")
-            if days <= 0 and key_type != "lifetime":
+            if days <= 0:
                 await ui_repo.set_awaiting(user_id, None)
                 await message.answer("Состояние сломано (не выбран срок). Открой /admin заново.")
                 return
-            if key_type == "lifetime":
-                days = 0
             key_value = generate_key()
             created = await repo.create_key(value=key_value, days_valid=days, max_uses=uses, key_type=key_type)
             await ui_repo.set_awaiting(user_id, None)
             await message.answer(
                 "✅ <b>Ключ создан</b>\n\n"
-                f"ID: {created.id}\n<code>{key_value}</code>\n\n📅 Срок: {days if days else 'бессрочно'} дней\n👥 Активаций: {uses}",
+                f"ID: {created.id}\n<code>{key_value}</code>\n\n📅 Срок: {days} дней\n👥 Активаций: {uses}",
                 reply_markup=admin_keys_menu_kb(),
             )
             return

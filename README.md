@@ -37,3 +37,34 @@
    - `python -m src`
    - `python main.py`
 
+
+
+## Документация
+
+- Подробное ТЗ продукта: `docs/TECH_SPEC.md`.
+
+
+## LLM (опционально)
+
+Для умной генерации конспектов и тестов можно задать переменные в `.env`:
+
+- `LLM_API_KEY`
+- `LLM_MODEL`
+- `LLM_BASE_URL` (по умолчанию `https://api.openai.com/v1`)
+- `LLM_TIMEOUT_S`
+
+Если переменные не заданы, бот использует локальный fallback-генератор.
+
+
+### GigaChat API
+
+Для работы через GigaChat:
+
+- `LLM_PROVIDER=gigachat`
+- `LLM_MODEL=<имя_модели>`
+- `LLM_BASE_URL=https://gigachat.devices.sberbank.ru/api/v1`
+- `GIGACHAT_AUTH_KEY=<Basic base64(...) ИЛИ client_id:client_secret>`
+- `GIGACHAT_SCOPE=GIGACHAT_API_PERS`
+- `GIGACHAT_OAUTH_URL=https://ngw.devices.sberbank.ru:9443/api/v2/oauth`
+
+Если GigaChat недоступен или настроен неверно, бот автоматически вернётся к локальному fallback-генератору.

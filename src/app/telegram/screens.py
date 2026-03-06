@@ -1,26 +1,61 @@
 from __future__ import annotations
 
+from datetime import datetime
 
-def access_gate_text() -> str:
+
+def _greeting_by_time(now: datetime | None = None) -> str:
+    dt = now or datetime.now()
+    hour = dt.hour
+    if 5 <= hour < 12:
+        return "Доброе утро"
+    if 12 <= hour < 18:
+        return "Добрый день"
+    if 18 <= hour < 23:
+        return "Добрый вечер"
+    return "Доброй ночи"
+
+
+def access_gate_text(display_name: str = "") -> str:
+    greet = _greeting_by_time()
+    greeting_line = f"{greet}, {display_name}" if display_name else greet
     return (
-        "Доступ к UMKOVO\n\n"
-        "Для использования нужен лицензионный ключ.\n\n"
-        "🔑 Введите ключ формата:\n"
+        f"{greeting_line}\n\n"
+        "🔑 Введите лицензионный ключ.\n\n"
+        "Формат:\n"
         "UMK-####-####\n\n"
-        "Если у вас нет ключа, запросите его у администратора или саппорта."
+        "Добро пожаловать в UMKOVO!\n"
+        "Данный бот является учебным помощником и репетитором для студентов.\n"
+        "Проект сейчас находится в стадии разработки MVP.\n\n"
+        "Авторы — студенты СВФУ КИТ:\n"
+        "ИСИП-24-3 Гоголев Айхал и Елизаров Айаал.\n\n"
+        "Если у вас нет ключа,\n"
+        "запросите его у администратора."
     )
 
 
 def request_key_text() -> str:
     return (
-        "Запрос ключа\n\n"
-        "Чтобы получить доступ, напишите администратору или в саппорт."
+        "📩 Запрос ключа\n\n"
+        "Чтобы получить лицензионный ключ, напишите одному из администраторов ниже."
     )
 
 
-def menu_text(is_active: bool = True) -> str:
-    base = "✨ UMKOVO\nAI-помощник для обучения: конспект → тест → дообучение."
-    return f"{base}\n\nВыберите действие 👇" if is_active else access_gate_text()
+def menu_text(is_active: bool = True, first_name: str = "", continue_topic: str = "") -> str:
+    if not is_active:
+        return access_gate_text()
+    greet = _greeting_by_time()
+    user_name = first_name.strip() or "друг"
+    variants = [
+        "Как дела, чем сегодня займёмся?",
+        "Готов(а) продолжить обучение?",
+    ]
+    if continue_topic:
+        variants.extend([
+            f"Продолжим тему «{continue_topic}»?",
+            f"Давайте пройдёмся по теме «{continue_topic}».",
+        ])
+    idx = (len(user_name) + len(continue_topic)) % len(variants)
+    return f"{greet}, {user_name}\n\n{variants[idx]}"
 
 
 def profile_text(first_name: str, is_active: bool, masked_key: str | None, expires_at: str | None, topics_studied: int = 0, avg_result: int = 0) -> str:
@@ -57,21 +92,26 @@ def topic_plan_text(title: str, plan: list[str] | None = None) -> str:
 
 def generation_status_text(step: int = 0) -> str:
     steps = [
-        "Анализ темы / файла",
-        "Построение структуры",
-        "Извлечение контекста (RAG)",
-        "Генерация разделов",
-        "Выравнивание разделов",
-        "Финальная сборка",
-        "Генерация теста",
+        "Анализируем тему",
+        "Строим план",
+        "Подбираем материалы",
+        "Генерируем конспект",
+        "Выравниваем разделы",
+        "Собираем итоговый конспект",
+        "Генерируем тест",
     ]
     active = max(0, min(step, len(steps) - 1))
     return "\n".join([f"{'▶' if i == active else '•'} {text}" for i, text in enumerate(steps)])
 
 
+def _fmt_label(fmt: str) -> str:
+    return {"brief": "Кратко", "detailed": "Подробно", "simple": "Простым языком", "cheat": "Шпаргалка"}.get(fmt, fmt or "Кратко")
+
+
 def summary_section_text(title: str, fmt: str, status: str, section_title: str, section_body: str, section_idx: int, total_sections: int) -> str:
+    _ = status
     return (
-        f"📘 {title}\nФормат: {fmt}\nСтатус: {status}\n"
+        f"📘 {title}\nФормат: {_fmt_label(fmt)}\n"
         f"────────────\nРаздел {section_idx + 1}/{max(total_sections, 1)}\n"
         f"<b>{section_title}</b>\n\n{section_body}"
     )
@@ -82,14 +122,12 @@ def test_question_text(title: str, index: int, total: int, question: str) -> str
 
 
 def test_result_text(score: int, total: int, weak_sections: list[str]) -> str:
-    pct = int(score * 100 / total) if total else 0
-    weak_text = ", ".join(weak_sections) if weak_sections else "не определены"
     wrong = max(total - score, 0)
+    weak_text = ", ".join(weak_sections) if weak_sections else "не определён"
     return (
-        "🏁 Тест завершён\n\n"
-        f"Правильных ответов: {score}/{total}\n"
-        f"Неправильных: {wrong}/{total}\n"
-        f"Итог: {pct}%\n\n"
+        f"Результат: {score} из {total}\n\n"
+        f"Правильных: {score}\n"
+        f"Ошибок: {wrong}\n\n"
         f"Слабый раздел: {weak_text}"
     )
 
@@ -111,7 +149,7 @@ def weak_section_training_text(title: str, weak_section: str, training_text: str
 def works_text(items: list[str], page: int, total_pages: int) -> str:
     if not items:
         return "📚 Ваши работы\nВ данном разделе хранится история ваших работ.\n\nСохранённых работ пока нет."
-    return "📚 Ваши работы\nВ данном разделе хранится история ваших работ."
+    return f"📚 Ваши работы\nВ данном разделе хранится история ваших работ.\n\nСтраница {page + 1}/{max(total_pages, 1)}"
 
 
 def key_input_text() -> str:

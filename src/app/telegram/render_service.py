@@ -44,7 +44,9 @@ class RenderService:
     async def show_access_gate(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "access_gate", push_history=push_history)
         await UIStateRepo(session).set_awaiting(user_id, "key")
-        await self._render(session, chat_id, user_id, screens.access_gate_text(), keyboards.access_gate_kb())
+        user = await UserRepo(session).get_or_create(user_id)
+        display_name = (user.first_name or "").strip() or (f"@{user.username}" if user.username else "")
+        await self._render(session, chat_id, user_id, screens.access_gate_text(display_name), keyboards.access_gate_kb())
 
     async def show_request_key(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "key_request", push_history=push_history)
@@ -53,12 +55,19 @@ class RenderService:
     async def show_menu(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "menu", push_history=push_history)
         is_active = await UserRepo(session).is_active(user_id)
+        if not is_active:
+            return await self.show_access_gate(session, chat_id, user_id, push_history=False)
         continue_topic = None
-        if is_active:
-            candidate = await TopicRepo(session).get_continue_candidate(user_id)
-            if candidate:
-                continue_topic = (candidate.id, candidate.title)
-        await self._render(session, chat_id, user_id, screens.menu_text(is_active=is_active), keyboards.menu_kb(continue_topic, is_active=is_active))
+        candidate = await TopicRepo(session).get_continue_candidate(user_id)
+        if candidate:
+            continue_topic = (candidate.id, candidate.title)
+        user = await UserRepo(session).get_or_create(user_id)
+        text = screens.menu_text(
+            is_active=is_active,
+            first_name=(user.first_name or ""),
+            continue_topic=(continue_topic[1] if continue_topic else ""),
+        )
+        await self._render(session, chat_id, user_id, text, keyboards.menu_kb(continue_topic, is_active=is_active))
 
     async def show_profile(self, session: AsyncSession, chat_id: int, user_id: int, first_name: str = "", push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "profile", push_history=push_history)
@@ -179,7 +188,12 @@ class RenderService:
         if not review:
             return await self.show_test_result(session, chat_id, user_id, topic_id, 0, 0, [], push_history=False)
         i = max(0, min(idx, len(review)-1))
-        await self._render(session, chat_id, user_id, screens.test_review_text(review[i], i, len(review)), keyboards.key_review_kb(topic_id, i, len(review)))
+        score = int(data.get("score", 0)) if isinstance(data, dict) else 0
+        total = int(data.get("total", len(review))) if isinstance(data, dict) else len(review)
+        weak = [str(topic.weak_section)] if topic.weak_section else []
+        header = screens.test_result_text(score, total, weak)
+        review_text = screens.test_review_text(review[i], i, len(review))
+        await self._render(session, chat_id, user_id, f"{header}\n\n────────────\n{review_text}", keyboards.key_review_kb(topic_id, i, len(review)))
 
     async def show_file_upload(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "file_upload", push_history=push_history)
