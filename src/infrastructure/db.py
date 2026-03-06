@@ -91,6 +91,41 @@ async def init_db() -> None:
                 "ALTER TABLE topics ADD COLUMN category TEXT NOT NULL DEFAULT 'Общее'"
             )
 
+        if "summary_text" not in existing_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE topics ADD COLUMN summary_text TEXT"
+            )
+
+        if "sections_json" not in existing_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE topics ADD COLUMN sections_json TEXT"
+            )
+
+        if "source_type" not in existing_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE topics ADD COLUMN source_type TEXT NOT NULL DEFAULT 'topic'"
+            )
+
+        if "source_file_name" not in existing_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE topics ADD COLUMN source_file_name TEXT"
+            )
+
+        if "active_section_index" not in existing_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE topics ADD COLUMN active_section_index INTEGER NOT NULL DEFAULT 0"
+            )
+
+        if "latest_test_result" not in existing_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE topics ADD COLUMN latest_test_result TEXT"
+            )
+
+        if "weak_section" not in existing_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE topics ADD COLUMN weak_section TEXT"
+            )
+
         users_info = await conn.exec_driver_sql("PRAGMA table_info('users')")
         user_columns = {row[1] for row in users_info.fetchall()}
         if "username" not in user_columns:

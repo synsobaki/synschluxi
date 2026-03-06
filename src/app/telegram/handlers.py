@@ -16,9 +16,11 @@ from src.infrastructure.repositories.keys import KeysRepo
 from src.infrastructure.repositories.users import UserRepo
 from src.infrastructure.repositories.topics import TopicRepo
 from src.services.keygen_service import generate_key
-from src.services.pdf_export import build_topic_pdf_bytes
+from src.services.pdf_service import PDFService
 from src.services.rag import RAGService
 from src.services.text_extract import TextExtractService
+from src.services.summary_service import SummaryService, SummarySource
+from src.services.test_service import TestService
 from src.services.access_notifications import notify_access_change
 from src.utils.callbacks import unpack
 
@@ -105,57 +107,6 @@ async def _render_user_card(session: AsyncSession, message: Message, user_id: in
     await message.answer(text, reply_markup=admin_user_card_kb(user_id))
 
 
-def _build_sections(title: str, fmt: str, rag_context: str | None = None) -> list[dict[str, str]]:
-    style = {
-        "short": "кратко и по сути",
-        "full": "подробно с пояснениями",
-        "cheat": "в формате шпаргалки",
-        "simple": "простым языком",
-    }.get(fmt, "структурированно")
-    ctx = f"\n\nКонтекст:\n{rag_context}" if rag_context else ""
-    return [
-        {"title": "Основные понятия", "body": f"{title} — тема для изучения {style}. Начни с определения и целей применения.{ctx}"},
-        {"title": "Теория", "body": "Выдели 3–5 ключевых тезисов, от которых зависит понимание темы."},
-        {"title": "Алгоритм", "body": "1) Определи входные данные.\n2) Выбери метод.\n3) Выполни шаги.\n4) Проверь результат."},
-        {"title": "Пример", "body": "Реши один базовый пример и проговори, почему каждый шаг корректен."},
-        {"title": "Итог", "body": f"Если можешь объяснить «{title}» своими словами — тема освоена."},
-    ]
-
-
-def _build_test(title: str) -> list[dict[str, object]]:
-    return [
-        {
-            "question": f"Что является первым шагом при изучении темы «{title}»?",
-            "options": ["Сразу решать сложные задачи", "Понять базовые определения", "Пропустить теорию", "Учить без структуры"],
-            "correct": 1,
-            "section": "Основные понятия",
-        },
-        {
-            "question": "Что лучше всего помогает закрепить материал?",
-            "options": ["Повторение и практика", "Только чтение", "Только видео", "Игнорирование ошибок"],
-            "correct": 0,
-            "section": "Теория",
-        },
-        {
-            "question": "Зачем нужна проверка результата?",
-            "options": ["Не нужна", "Чтобы убедиться в корректности решения", "Только для отчёта", "Чтобы потратить время"],
-            "correct": 1,
-            "section": "Алгоритм",
-        },
-    ]
-
-
-def _compress_text(text: str, mode: str, value: int) -> str:
-    words = text.split()
-    if not words:
-        return ""
-    if mode == "words":
-        limit = max(20, value)
-    else:
-        limit = max(20, int(len(words) * value / 100))
-    return " ".join(words[:limit])
-
-
 async def _safe_render_call(render: Any, method: str, *args, **kwargs):
     fn = getattr(render, method, None)
     if not fn:
@@ -180,7 +131,7 @@ async def on_start(message: Message, session: AsyncSession, render: Any):
         await _safe_render_call(render, "show_menu", session, chat_id, user_id)
         return
 
-    await _safe_render_call(render, "show_key_input", session, chat_id, user_id)
+    await _safe_render_call(render, "show_access_gate", session, chat_id, user_id)
 
 
 @router.message(Command("admin"))
@@ -438,15 +389,15 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
     if cb.section == "menu" and cb.action == "profile":
         await _safe_render_call(render, "show_profile", session, chat_id, user_id, first_name=(cq.from_user.first_name or ""))
         return
-    if cb.section == "menu" and cb.action == "archive":
+    if cb.section == "menu" and cb.action == "works":
         if not is_active:
             return await _safe_render_call(render, "show_key_input", session, chat_id, user_id)
-        await _safe_render_call(render, "show_archive", session, chat_id, user_id, page=0)
+        await _safe_render_call(render, "show_works_list", session, chat_id, user_id, page=0)
         return
     if cb.section == "menu" and cb.action == "create":
         if not is_active:
             return await _safe_render_call(render, "show_key_input", session, chat_id, user_id)
-        await _safe_render_call(render, "show_topic_title_input", session, chat_id, user_id)
+        await _safe_render_call(render, "show_topic_input", session, chat_id, user_id)
         return
     if cb.section == "menu" and cb.action == "file":
         if not is_active:
@@ -454,15 +405,19 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         await _safe_render_call(render, "show_file_upload", session, chat_id, user_id)
         return
 
-    if cb.section == "archive" and cb.action == "page":
-        await _safe_render_call(render, "show_archive", session, chat_id, user_id, page=max(int(cb.value), 0), push_history=False)
+    if cb.section == "works" and cb.action == "page":
+        await _safe_render_call(render, "show_works_list", session, chat_id, user_id, page=max(int(cb.value), 0), push_history=False)
         return
 
     if cb.section == "profile" and cb.action == "key_input":
         await _safe_render_call(render, "show_key_input", session, chat_id, user_id)
         return
     if cb.section == "profile" and cb.action == "key_request":
-        await _safe_render_call(render, "show_key_request", session, chat_id, user_id)
+        await _safe_render_call(render, "show_request_key", session, chat_id, user_id)
+        return
+
+    if cb.section == "works" and cb.action == "open":
+        await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=int(cb.value))
         return
 
     if cb.section == "topic" and cb.action == "open":
@@ -473,7 +428,7 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         if candidate:
             await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=candidate.id)
             return
-        await _safe_render_call(render, "show_archive", session, chat_id, user_id)
+        await _safe_render_call(render, "show_works_list", session, chat_id, user_id)
         return
     if cb.section == "topic" and cb.action == "section":
         topic_id, idx = map(int, cb.value.split("|", 1))
@@ -485,21 +440,31 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         repo = TopicRepo(session)
         topic = await repo.get_by_id(user_id, topic_id)
         if not topic:
-            return await _safe_render_call(render, "show_archive", session, chat_id, user_id)
+            return await _safe_render_call(render, "show_works_list", session, chat_id, user_id)
         await repo.set_format(user_id, topic_id, fmt)
-        await _safe_render_call(render, "show_topic_plan", session, chat_id, user_id, topic_id=topic_id, title=topic.title)
+        plan = SummaryService().build_plan(SummarySource(title=topic.title, source_type=topic.source_type or "topic"), fmt)
+        await _safe_render_call(render, "show_plan_preview", session, chat_id, user_id, topic_id=topic_id, title=topic.title, plan=plan)
         return
     if cb.section == "topic" and cb.action == "generate":
         topic_id = int(cb.value)
         repo = TopicRepo(session)
         topic = await repo.get_by_id(user_id, topic_id)
         if not topic:
-            return await _safe_render_call(render, "show_archive", session, chat_id, user_id)
+            return await _safe_render_call(render, "show_works_list", session, chat_id, user_id)
         for step in range(4):
             await _safe_render_call(render, "show_generation_status", session, chat_id, user_id, step=step, push_history=(step == 0))
-        rag = RAGService().build_context(topic.title)
-        sections = _build_sections(topic.title, topic.fmt, rag_context=rag)
-        await repo.save_generated_material(user_id=user_id, topic_id=topic_id, content_sections=sections, test_questions=_build_test(topic.title))
+        summary_service = SummaryService()
+        test_service = TestService()
+        source_text = ""
+        ui_state = await ui_repo.get_or_create(user_id)
+        meta = json.loads(ui_state.awaiting_meta_json or "{}")
+        if ui_state.awaiting_input == "topic_file_mode" and int(meta.get("topic_id", 0)) == topic_id:
+            source_text = str(meta.get("source_text", ""))
+            await ui_repo.set_awaiting(user_id, None)
+        source = SummarySource(title=topic.title, source_type=topic.source_type or "topic", source_text=source_text, file_name=topic.source_file_name)
+        summary_text, sections = summary_service.generate_summary(source, topic.fmt or "brief")
+        test = test_service.generate_test_from_summary(sections)
+        await repo.save_generated_material(user_id=user_id, topic_id=topic_id, content_sections=sections, test_questions=test, summary_text=summary_text)
         await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=topic_id, push_history=False)
         return
     if cb.section == "topic" and cb.action == "edit":
@@ -511,39 +476,19 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         repo = TopicRepo(session)
         topic = await repo.get_by_id(user_id, topic_id)
         if not topic:
-            return await _safe_render_call(render, "show_archive", session, chat_id, user_id)
-        sections = _build_sections(topic.title, mode)
-        await repo.save_generated_material(user_id=user_id, topic_id=topic_id, content_sections=sections, test_questions=repo.get_topic_test(topic) or _build_test(topic.title))
+            return await _safe_render_call(render, "show_works_list", session, chat_id, user_id)
+        sections = SummaryService().rewrite_summary(repo.get_topic_sections(topic), mode)
+        await repo.save_generated_material(user_id=user_id, topic_id=topic_id, content_sections=sections, test_questions=repo.get_topic_test(topic), summary_text=topic.summary_text)
         await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=topic_id, push_history=False)
         return
     if cb.section == "topic" and cb.action == "pdf":
         topic_id = int(cb.value)
         topic = await TopicRepo(session).get_by_id(user_id, topic_id)
         if not topic:
-            return await _safe_render_call(render, "show_archive", session, chat_id, user_id)
+            return await _safe_render_call(render, "show_works_list", session, chat_id, user_id)
         sections = TopicRepo(session).get_topic_sections(topic)
-        data = build_topic_pdf_bytes(topic.title, sections)
+        data = PDFService().export_summary_pdf(topic.title, topic.fmt or "brief", sections)
         await cq.message.answer_document(BufferedInputFile(data, filename=f"{topic.title[:30]}.pdf"))
-        return
-
-    if cb.section == "file" and cb.action in {"words", "percent"}:
-        topic_id, value = cb.value.split("|", 1)
-        topic_id, value = int(topic_id), int(value)
-        state = await ui_repo.get_or_create(user_id)
-        meta = json.loads(state.awaiting_meta_json or "{}")
-        src = meta.get("source_text", "")
-        if not src:
-            await cq.answer("Сначала загрузите документ", show_alert=True)
-            return
-        topic = await TopicRepo(session).get_by_id(user_id, topic_id)
-        if not topic:
-            return await _safe_render_call(render, "show_archive", session, chat_id, user_id)
-        compressed = _compress_text(src, cb.action, value)
-        rag = RAGService().build_context(topic.title, compressed)
-        sections = _build_sections(topic.title, "full", rag_context=rag)
-        await TopicRepo(session).save_generated_material(user_id, topic_id, sections, _build_test(topic.title))
-        await ui_repo.set_awaiting(user_id, None)
-        await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=topic_id)
         return
 
     if cb.section == "test" and cb.action == "start":
@@ -556,7 +501,7 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         topic_id, q_idx, answer_idx = map(int, cb.value.split("|", 2))
         topic = await TopicRepo(session).get_by_id(user_id, topic_id)
         if not topic:
-            return await _safe_render_call(render, "show_archive", session, chat_id, user_id)
+            return await _safe_render_call(render, "show_works_list", session, chat_id, user_id)
 
         test = TopicRepo(session).get_topic_test(topic)
         if not test:
@@ -579,7 +524,9 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
             status = "mastered" if mastery >= 80 else "ready"
             await TopicRepo(session).set_status(user_id, topic_id, status=status, mastery=mastery)
             await ui_repo.set_awaiting(user_id, None)
-            await _safe_render_call(render, "show_test_result", session, chat_id, user_id, topic_id=topic_id, score=score, total=len(test), weak_section=weak)
+            weak_sections = [weak] if weak else []
+            await TopicRepo(session).set_test_feedback(user_id, topic_id, {"score": score, "total": len(test)}, weak)
+            await _safe_render_call(render, "show_test_result", session, chat_id, user_id, topic_id=topic_id, score=score, total=len(test), weak_sections=weak_sections)
             await ui_repo.set_awaiting(user_id, "weak_training", meta={"topic_id": topic_id, "weak": weak})
             return
 
@@ -587,12 +534,20 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         await _safe_render_call(render, "show_test_question", session, chat_id, user_id, topic_id=topic_id, q_idx=next_idx, push_history=False)
         return
 
-    if cb.section == "test" and cb.action == "train":
-        topic_id = int(cb.value)
+    if cb.section == "training" and cb.action == "open":
+        topic_id = int(str(cb.value).split("|", 1)[0])
         ui = await ui_repo.get_or_create(user_id)
         meta = json.loads(ui.awaiting_meta_json or "{}")
         weak = str(meta.get("weak", "Ключевые понятия"))
-        await _safe_render_call(render, "show_weak_training", session, chat_id, user_id, topic_id=topic_id, weak_section=weak)
+        topic = await TopicRepo(session).get_by_id(user_id, topic_id)
+        if not topic:
+            return
+        sections = TopicRepo(session).get_topic_sections(topic)
+        weak_section = next((s for s in sections if s.get("title") == weak), sections[0] if sections else {"title": weak, "body": ""})
+        test = TopicRepo(session).get_topic_test(topic)
+        wrong_answers = [q for q in test if str(q.get("section_title") or q.get("section")) == weak]
+        training_text = TestService().build_training_from_weak_section(topic.title, weak_section, wrong_answers)
+        await _safe_render_call(render, "show_weak_section_training", session, chat_id, user_id, topic_id=topic_id, weak_section=weak, training_text=training_text)
         return
 
     await _safe_render_call(render, "show_menu", session, chat_id, user_id)
@@ -625,9 +580,10 @@ async def on_document(message: Message, session: AsyncSession, render: Any):
     finally:
         Path(path).unlink(missing_ok=True)
 
-    topic = await TopicRepo(session).create_draft(user_id=user_id, title=Path(doc.file_name or "Документ").stem)
-    await ui_repo.set_awaiting(user_id, "compress_settings", meta={"topic_id": topic.id, "source_text": extracted})
-    await _safe_render_call(render, "show_compress_settings", session, chat_id, user_id, topic_id=topic.id)
+    topic = await TopicRepo(session).create_draft(user_id=user_id, title=Path(doc.file_name or "Документ").stem, source_type="file", source_file_name=doc.file_name)
+    await ui_repo.set_awaiting(user_id, None)
+    await ui_repo.set_awaiting(user_id, "topic_file_mode", meta={"topic_id": topic.id, "source_text": extracted})
+    await _safe_render_call(render, "show_format_pick", session, chat_id, user_id, topic_id=topic.id, title=topic.title)
 
 
 @router.message(F.text)
@@ -859,6 +815,6 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
             await message.answer("Слишком коротко. Напиши тему чуть подробнее 🙂")
             return
         await ui_repo.set_awaiting(user_id, None)
-        topic = await TopicRepo(session).create_draft(user_id=user_id, title=text)
+        topic = await TopicRepo(session).create_draft(user_id=user_id, title=text, source_type="topic")
         await _safe_render_call(render, "show_format_pick", session, chat_id, user_id, topic_id=topic.id, title=topic.title)
         return

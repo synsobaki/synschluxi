@@ -11,8 +11,24 @@ class TopicRepo:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create_draft(self, user_id: int, title: str, category: str = "Общее") -> TopicRow:
-        row = TopicRow(user_id=user_id, title=title.strip(), category=(category or "Общее").strip()[:64], fmt="", status="draft", mastery=0)
+    async def create_draft(
+        self,
+        user_id: int,
+        title: str,
+        category: str = "Общее",
+        source_type: str = "topic",
+        source_file_name: str | None = None,
+    ) -> TopicRow:
+        row = TopicRow(
+            user_id=user_id,
+            title=title.strip(),
+            category=(category or "Общее").strip()[:64],
+            fmt="",
+            status="draft",
+            mastery=0,
+            source_type=source_type,
+            source_file_name=source_file_name,
+        )
         self.session.add(row)
         await self.session.flush()
         return row
@@ -44,11 +60,14 @@ class TopicRepo:
         topic_id: int,
         content_sections: list[dict[str, str]],
         test_questions: list[dict[str, object]],
+        summary_text: str | None = None,
     ) -> TopicRow | None:
         row = await self.get_by_id(user_id, topic_id)
         if not row:
             return None
-        row.content_json = json.dumps(content_sections, ensure_ascii=False)
+        row.sections_json = json.dumps(content_sections, ensure_ascii=False)
+        row.content_json = row.sections_json
+        row.summary_text = summary_text or "\n\n".join([f"{x.get('title', '')}\n{x.get('body', '')}" for x in content_sections])
         row.test_json = json.dumps(test_questions, ensure_ascii=False)
         row.status = "ready"
         row.mastery = max(row.mastery, 35)
@@ -56,10 +75,11 @@ class TopicRepo:
         return row
 
     def get_topic_sections(self, row: TopicRow) -> list[dict[str, str]]:
-        if not row.content_json:
+        raw = row.sections_json or row.content_json
+        if not raw:
             return []
         try:
-            data = json.loads(row.content_json)
+            data = json.loads(raw)
             if isinstance(data, list):
                 return [x for x in data if isinstance(x, dict)]
         except Exception:
@@ -77,6 +97,21 @@ class TopicRepo:
             return []
         return []
 
+    async def set_active_section(self, user_id: int, topic_id: int, section_idx: int) -> None:
+        row = await self.get_by_id(user_id, topic_id)
+        if not row:
+            return
+        row.active_section_index = max(0, section_idx)
+        await self.session.flush()
+
+    async def set_test_feedback(self, user_id: int, topic_id: int, result: dict[str, object], weak_section: str | None) -> None:
+        row = await self.get_by_id(user_id, topic_id)
+        if not row:
+            return
+        row.latest_test_result = json.dumps(result, ensure_ascii=False)
+        row.weak_section = weak_section
+        await self.session.flush()
+
     async def list_recent(self, user_id: int, limit: int = 10) -> list[TopicRow]:
         stmt = (
             select(TopicRow)
@@ -91,11 +126,10 @@ class TopicRepo:
         stmt = (
             select(TopicRow)
             .where(TopicRow.user_id == user_id, TopicRow.status != "mastered")
-            .order_by(desc(TopicRow.status == "draft"), desc(TopicRow.created_at))
+            .order_by(desc(TopicRow.created_at))
             .limit(1)
         )
         return await self.session.scalar(stmt)
-
 
     async def list_page(self, user_id: int, page: int = 0, page_size: int = 5) -> tuple[list[TopicRow], int]:
         page = max(page, 0)
