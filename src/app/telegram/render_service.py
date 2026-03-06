@@ -89,21 +89,27 @@ class RenderService:
 
     async def show_key_request(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "key_request", push_history=push_history)
-        admin_url = getattr(self.settings, "admin_url", None) or "https://t.me/umkovo_support"
-        await self._render(session, chat_id, user_id, screens.key_request_text(), keyboards.profile_kb(admin_url))
+        await self._render(session, chat_id, user_id, screens.key_request_text(), keyboards.key_request_kb())
 
-    async def show_archive(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
+    async def show_archive(self, session: AsyncSession, chat_id: int, user_id: int, page: int = 0, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "archive", push_history=push_history)
-        topics = await TopicRepo(session).list_recent(user_id)
+        topics, total = await TopicRepo(session).list_page(user_id, page=page, page_size=5)
+        total_pages = (total + 4) // 5 if total else 1
         status_map = {
-            "mastered": "🟢 Освоено",
-            "ready": "🟡 В процессе",
-            "in_progress": "🟡 В процессе",
-            "draft": "🔴 Требует внимания",
+            "mastered": "освоено",
+            "ready": "в процессе",
+            "in_progress": "в процессе",
+            "draft": "черновик",
         }
-        items = [f"• {t.title}\n  {status_map.get(t.status, '🟡 В процессе')} · прогресс {t.mastery}%" for t in topics]
+        items = [f"• {t.title} | {getattr(t, 'category', 'Общее')} | {status_map.get(t.status, 'в процессе')} | {t.mastery}%" for t in topics]
         topic_id = topics[0].id if topics else None
-        await self._render(session, chat_id, user_id, screens.archive_text(items), keyboards.archive_kb(topic_id=topic_id))
+        await self._render(
+            session,
+            chat_id,
+            user_id,
+            screens.archive_text(items, page=page, total_pages=total_pages),
+            keyboards.archive_kb(topic_id=topic_id, page=page, has_prev=page > 0, has_next=page + 1 < total_pages),
+        )
 
     async def show_topic_title_input(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "topic_title_input", push_history=push_history)
@@ -158,7 +164,7 @@ class RenderService:
             chat_id,
             user_id,
             text,
-            keyboards.topic_card_kb(topic.id, has_many_sections=len(sections) > 1, section_idx=idx),
+            keyboards.topic_card_kb(topic.id, has_many_sections=len(sections) > 1, section_idx=idx, at_last_section=(idx == len(sections) - 1)),
         )
 
     async def show_test_question(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, q_idx: int, push_history: bool = True, **_) -> None:
@@ -192,6 +198,33 @@ class RenderService:
         text = screens.test_result_text(score=score, total=total, weak_section=weak_section)
         await self._render(session, chat_id, user_id, text, keyboards.test_result_kb(topic_id))
 
+    async def show_topic_edit(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, push_history: bool = True, **_) -> None:
+        await self._set_screen(session, user_id, "topic_edit", push_history=push_history)
+        await self._render(session, chat_id, user_id, "Как изменить конспект?", keyboards.topic_edit_kb(topic_id))
+
+    async def show_weak_training(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, weak_section: str = "Ключевые понятия", push_history: bool = True, **_) -> None:
+        await self._set_screen(session, user_id, "weak_training", push_history=push_history)
+        topic = await TopicRepo(session).get_by_id(user_id, topic_id)
+        if not topic:
+            return await self.show_archive(session, chat_id, user_id, push_history=False)
+        await self._render(session, chat_id, user_id, screens.weak_section_training_text(topic.title, weak_section), keyboards.test_result_kb(topic_id))
+
+    async def show_topic_details(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, push_history: bool = True, **_) -> None:
+        await self._set_screen(session, user_id, "topic_details", push_history=push_history)
+        topic = await TopicRepo(session).get_by_id(user_id, topic_id)
+        if not topic:
+            return await self.show_archive(session, chat_id, user_id, push_history=False)
+        await self._render(session, chat_id, user_id, screens.topic_details_text(topic.title, topic.fmt or "не задан", topic.status, topic.mastery), keyboards.topic_details_kb(topic.id))
+
+    async def show_file_upload(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
+        await self._set_screen(session, user_id, "file_upload", push_history=push_history)
+        await UIStateRepo(session).set_awaiting(user_id, "file_upload")
+        await self._render(session, chat_id, user_id, screens.file_upload_text(), keyboards.file_upload_kb())
+
+    async def show_compress_settings(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, push_history: bool = True, **_) -> None:
+        await self._set_screen(session, user_id, "compress_settings", push_history=push_history)
+        await self._render(session, chat_id, user_id, screens.compress_settings_text(), keyboards.compress_mode_kb(topic_id))
+
     async def show_by_screen(self, session: AsyncSession, chat_id: int, user_id: int, screen: str, first_name: str = "", push_history: bool = False, **_) -> None:
         if screen == "menu":
             return await self.show_menu(session, chat_id, user_id, push_history=push_history)
@@ -201,4 +234,6 @@ class RenderService:
             return await self.show_key_input(session, chat_id, user_id, push_history=push_history)
         if screen == "archive":
             return await self.show_archive(session, chat_id, user_id, push_history=push_history)
+        if screen == "file_upload":
+            return await self.show_file_upload(session, chat_id, user_id, push_history=push_history)
         return await self.show_menu(session, chat_id, user_id, push_history=push_history)

@@ -85,3 +85,8 @@ async def init_db() -> None:
             await conn.exec_driver_sql(
                 "ALTER TABLE topics ADD COLUMN test_json TEXT"
             )
+
+        if "category" not in existing_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE topics ADD COLUMN category TEXT NOT NULL DEFAULT 'Общее'"
+            )

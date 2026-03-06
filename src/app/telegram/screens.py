@@ -4,11 +4,11 @@ from __future__ import annotations
 def menu_text(is_active: bool = True) -> str:
     base = (
         "✨ UMKOVO\n"
-        "Твой учебный помощник: понятные конспекты и тренировка знаний."
+        "AI-репетитор: помогаю понять тему, закрепить знания и найти слабые места."
     )
     if is_active:
-        return f"{base}\n\nВыбери, с чего начнём 👇"
-    return f"{base}\n\nДля полного доступа активируй ключ в профиле 🔑"
+        return f"{base}\n\nВыбери действие 👇"
+    return f"{base}\n\nДля доступа активируйте лицензионный ключ 🔑"
 
 
 def profile_text(
@@ -24,65 +24,63 @@ def profile_text(
     return (
         "👤 Профиль\n\n"
         f"Имя: {first_name or 'Пользователь'}\n"
-        f"Доступ: {status}\n"
+        f"Статус доступа: {status}\n"
         f"Ключ: {masked_key or 'отсутствует'} ({key_status})\n"
-        f"Срок доступа: {expires_at or 'не задан'}\n\n"
-        "📈 Прогресс обучения\n"
-        f"Изучено тем: {topics_studied}\n"
+        f"Срок ключа: {expires_at or 'не задан'}\n\n"
+        f"Количество тем: {topics_studied}\n"
         f"Средний прогресс: {avg_result}%"
     )
 
 
 def key_input_text() -> str:
-    return "🔑 Введите лицензионный ключ.\nПример: UMK-92F1-A7B3"
+    return (
+        "🔐 Доступ к UMKOVO\n\n"
+        "Для использования бота нужен лицензионный ключ.\n\n"
+        "Введите лицензионный ключ\n"
+        "Формат: UMK-####-####"
+    )
 
 
 def key_request_text() -> str:
     return (
-        "📩 Нужен доступ?\n"
-        "Нажмите кнопку ниже, чтобы запросить ключ у администратора."
+        "Чтобы получить ключ:\n"
+        "1. Напишите администратору\n"
+        "2. Запросите лицензионный ключ\n"
+        "3. Введите его в боте"
     )
 
 
 def topic_title_input_text() -> str:
     return (
         "📘 Создание конспекта\n\n"
-        "Введите тему, которую хотите изучить.\n\n"
-        "Примеры:\n"
-        "• Метод Гаусса\n"
-        "• Интерполяция Лагранжа\n"
-        "• SQL индексы"
+        "Введите тему, которую хотите изучить."
     )
 
 
 def format_pick_text(title: str) -> str:
-    return f"🧩 Тема: {title}\n\nВыберите удобный формат изучения."
+    return f"🧩 Тема: {title}\n\nВыберите формат конспекта."
 
 
 def topic_plan_text(title: str) -> str:
     return (
         f"🗺 План темы: {title}\n\n"
-        "1) Ключевые понятия\n"
-        "2) Теоретическая база\n"
-        "3) Алгоритм применения\n"
-        "4) Примеры\n"
-        "5) Краткий итог"
+        "1) Основные понятия\n"
+        "2) Теория\n"
+        "3) Алгоритм\n"
+        "4) Пример\n"
+        "5) Итог"
     )
 
 
 def generation_status_text(step: int = 0) -> str:
     steps = [
-        "⏳ Готовим конспект...",
         "🧠 Анализируем тему",
         "📝 Формируем структуру",
-        "📘 Пишем материал",
-        "✅ Почти готово",
+        "📘 Пишем конспект",
+        "🧪 Готовим тест",
     ]
     active = max(0, min(step, len(steps) - 1))
-    lines = []
-    for idx, line in enumerate(steps):
-        prefix = "▶" if idx == active else "•"
-        lines.append(f"{prefix} {line}")
+    lines = [f"{'▶' if i == active else '•'} {s}" for i, s in enumerate(steps)]
     return "\n".join(lines)
 
 
@@ -96,54 +94,65 @@ def topic_card_text(
     total_sections: int,
 ) -> str:
     format_map = {
-        "short": "Краткий конспект",
-        "full": "Полный конспект",
-        "cheat": "Шпаргалка",
-        "simple": "Простым языком",
+        "short": "кратко",
+        "full": "подробно",
+        "cheat": "шпаргалка",
+        "simple": "простым языком",
     }
     return (
         f"📘 {title}\n"
         f"Формат: {format_map.get(fmt, fmt or 'базовый')}\n"
         f"Статус: {status}\n"
         "────────────\n"
-        f"📍 Раздел {section_idx + 1} из {max(total_sections, 1)}\n"
-        f"<b>{section_title}</b>\n\n"
-        f"{section_body}\n\n"
-        "🧷 Структурированный учебный конспект"
+        f"Раздел {section_idx + 1}/{max(total_sections, 1)}\n"
+        f"<b>{section_title}</b>\n\n{section_body}"
     )
 
 
 def test_question_text(title: str, index: int, total: int, question: str) -> str:
-    return (
-        f"🧪 Тест по теме: {title}\n\n"
-        f"Вопрос {index + 1} из {total}\n"
-        "Выберите правильный вариант:\n\n"
-        f"{question}"
-    )
-
-
-def test_feedback_text(correct: bool, explanation: str, score: int, answered: int, total: int) -> str:
-    mark = "✅ Верно" if correct else "❌ Неверно"
-    return (
-        f"{mark}\n"
-        f"{explanation}\n\n"
-        f"Промежуточный результат: {score}/{answered}\n"
-        f"Осталось вопросов: {total - answered}"
-    )
+    return f"🧪 Тест: {title}\n\nВопрос {index + 1}/{total}\n\n{question}"
 
 
 def test_result_text(score: int, total: int, weak_section: str) -> str:
     pct = int(score * 100 / total) if total else 0
     return (
         "🏁 Тест завершён\n\n"
-        f"Результат: {score}/{total} ({pct}%)\n"
-        f"Слабый раздел: {weak_section or 'не определён'}\n\n"
-        "Рекомендуем повторить материал и пройти тест снова."
+        f"Результат: {score}/{total}\n"
+        f"Освоение: {pct}%\n"
+        f"Слабый раздел: {weak_section or 'не определён'}"
     )
 
 
-def archive_text(items: list[str]) -> str:
+def weak_section_training_text(title: str, weak_section: str) -> str:
+    return (
+        f"📌 Тема: {title}\n"
+        f"Слабый раздел: {weak_section}\n\n"
+        "Объясняем проще:\n"
+        "1) Сформулируйте правило своими словами.\n"
+        "2) Решите 1 короткий пример.\n"
+        "3) Проверьте себя повторным тестом."
+    )
+
+
+def archive_text(items: list[str], page: int, total_pages: int) -> str:
     if not items:
-        return "📚 Архив\n\nСохранённых тем пока нет."
+        return "📚 Ваши работы\n\nСохранённых тем пока нет."
     rows = "\n".join(items)
-    return f"📚 Архив тем\n\n{rows}"
+    return f"📚 Ваши работы\n\n{rows}\n\nСтраница {page + 1}/{max(total_pages, 1)}"
+
+
+def topic_details_text(title: str, fmt: str, status: str, progress: int) -> str:
+    return (
+        f"📖 {title}\n"
+        f"Формат: {fmt}\n"
+        f"Статус: {status}\n"
+        f"Прогресс: {progress}%"
+    )
+
+
+def file_upload_text() -> str:
+    return "📎 Загрузите файл (txt, pdf, docx), чтобы сделать конспект."
+
+
+def compress_settings_text() -> str:
+    return "Выберите режим сжатия: по словам или по проценту."
