@@ -68,6 +68,27 @@ def _cb_act_name(cb: Any) -> str:
     return str(a)
 
 
+def _normalize_act_name(act_name: str) -> str:
+    """
+    Нормализация callback action к каноническим именам Act из src.utils.callbacks.Act.
+    Поддерживает и старые человекочитаемые алиасы.
+    """
+    raw = (act_name or "").strip().upper()
+
+    aliases = {
+        "HOME": "MENU",
+        "PROFILE": "PROF",
+        "ARCHIVE": "ARCH",
+        "CREATE": "NEW",
+        "CREATE_NOTE": "NEW",
+        "CREATE_SUMMARY": "NEW",
+        "NEW_TOPIC": "NEW",
+        "KEY_INPUT": "KEY",
+        "ENTER_KEY": "KEY",
+    }
+    return aliases.get(raw, raw)
+
+
 def _simple_act_from_data(data: str) -> str:
     """
     На случай если в callback_data просто строки типа:
@@ -186,15 +207,15 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
             cb = None
 
     if cb is not None:
-        act = _cb_act_name(cb)
+        act = _normalize_act_name(_cb_act_name(cb))
 
         # Поддержка самых частых действий.
         # Если твой Act называется иначе — всё равно не упадёт, просто не матчнется.
-        if act in ("MENU", "HOME"):
+        if act == "MENU":
             await _safe_render_call(render, "show_menu", session, chat_id, user_id)
             return
 
-        if act in ("PROFILE",):
+        if act == "PROF":
             await _safe_render_call(
                 render,
                 "show_profile",
@@ -205,17 +226,17 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
             )
             return
 
-        if act in ("ARCHIVE",):
+        if act == "ARCH":
             await _safe_render_call(render, "show_archive", session, chat_id, user_id)
             return
 
-        if act in ("CREATE", "CREATE_NOTE", "CREATE_SUMMARY", "NEW_TOPIC"):
+        if act == "NEW":
             # если у тебя первый шаг — запросить тему текстом:
             await ui_repo.set_awaiting(user_id, "topic_title")
             await cq.message.answer("Напиши тему для конспекта (например: «Интерфейсы в Java»):")
             return
 
-        if act in ("KEY_INPUT", "ENTER_KEY"):
+        if act == "KEY":
             await _safe_render_call(render, "show_key_input", session, chat_id, user_id)
             return
 
@@ -223,7 +244,7 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
             await _safe_render_call(render, "show_key_request", session, chat_id, user_id)
             return
 
-        if act in ("BACK",):
+        if act == "BACK":
             prev = await ui_repo.pop_history(user_id)
             if prev:
                 # если у тебя есть универсальный show_by_screen
@@ -239,6 +260,31 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
                 if r is not None:
                     return
             # fallback
+            await _safe_render_call(render, "show_menu", session, chat_id, user_id)
+            return
+
+        if act in ("CONT", "TOPIC"):
+            topic_id = cb.p1
+            r = await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=topic_id)
+            if r is not None:
+                return
+            await _safe_render_call(render, "show_archive", session, chat_id, user_id)
+            return
+
+        if act == "FMT":
+            topic_id = cb.p1
+            fmt = cb.p2
+            r = await _safe_render_call(
+                render,
+                "show_topic_card",
+                session,
+                chat_id,
+                user_id,
+                topic_id=topic_id,
+                fmt=fmt,
+            )
+            if r is not None:
+                return
             await _safe_render_call(render, "show_menu", session, chat_id, user_id)
             return
 
