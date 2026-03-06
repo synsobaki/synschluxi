@@ -56,3 +56,19 @@ async def init_db() -> None:
         from src.infrastructure import db_models  # noqa: F401
 
         await conn.run_sync(Base.metadata.create_all)
+
+        # Лёгкая авто-миграция для существующих sqlite-баз без alembic.
+        # Ранее в ui_state не было awaiting_meta_json/history_stack,
+        # из-за чего чтение модели падало с "no such column".
+        table_info = await conn.exec_driver_sql("PRAGMA table_info('ui_state')")
+        existing_columns = {row[1] for row in table_info.fetchall()}
+
+        if "awaiting_meta_json" not in existing_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE ui_state ADD COLUMN awaiting_meta_json TEXT"
+            )
+
+        if "history_stack" not in existing_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE ui_state ADD COLUMN history_stack TEXT NOT NULL DEFAULT ''"
+            )
