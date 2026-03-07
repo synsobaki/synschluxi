@@ -16,15 +16,15 @@ def _greeting_by_time(now: datetime | None = None) -> str:
 
 
 def access_gate_text(display_name: str = "") -> str:
-    greet = _greeting_by_time()
-    greeting_line = f"{greet}, {display_name}" if display_name else greet
+    _ = display_name
     return (
-        f"{greeting_line}\n\n"
-        "🔑 Введите лицензионный ключ.\n\n"
-        "Формат:\n"
-        "UMK-####-####\n\n"
-        "Если у вас нет ключа,\n"
-        "запросите его у администратора."
+        "Добро пожаловать в UMKOVO!\n\n"
+        "— Это Telegram-бот образовательной помощник студента,\n"
+        "помогающий ему эффективнее учиться, легче познавать материал\n\n"
+        "— Данный бот в стадии разработки MVP, для курсовой работы\n"
+        "студентов СВФУ КИТ ИСИП-24-3, Гоголева Айхала и Елизарова Айаала\n\n"
+        "Введите лицензионный ключ\n"
+        "Формат: UMK-####-####"
     )
 
 
@@ -35,9 +35,20 @@ def request_key_text() -> str:
     )
 
 
-def menu_text(is_active: bool = True) -> str:
-    base = "✨ UMKOVO\nAI-помощник для обучения: конспект → тест → дообучение."
-    return f"{base}\n\nВыберите действие 👇" if is_active else access_gate_text()
+def menu_text(first_name: str = "", continue_title: str | None = None, is_active: bool = True) -> str:
+    if not is_active:
+        return access_gate_text()
+    greet = _greeting_by_time()
+    name = first_name or "друг"
+    variants = [
+        "Как дела, чем сейчас займемся?",
+        "Как насчет закрепить знания и сделать ещё один шаг вперёд?",
+        "Готовы продолжить обучение и усилить результат?",
+    ]
+    phrase = variants[datetime.now().minute % len(variants)]
+    if continue_title:
+        phrase = f"У нас есть незаконченное дело — давайте доведём до конца тему «{continue_title}»."
+    return f"{greet}, {name}!\n{phrase}\n\nВыберите действие 👇"
 
 
 def profile_text(first_name: str, is_active: bool, masked_key: str | None, expires_at: str | None, topics_studied: int = 0, avg_result: int = 0) -> str:
@@ -59,6 +70,16 @@ def topic_input_text() -> str:
 
 def topic_title_input_text() -> str:
     return "✍️ Введите тему, которую хотите изучить."
+
+
+def topic_title_confirm_text(raw_title: str, normalized_title: str) -> str:
+    if raw_title == normalized_title:
+        return f"Тема: <b>{normalized_title}</b>\n\nПодтвердите тему и перейдём к построению плана."
+    return (
+        f"Вы ввели: <b>{raw_title}</b>\n"
+        f"Предлагаемый вариант: <b>{normalized_title}</b>\n\n"
+        "Подтвердите тему и перейдём к построению плана."
+    )
 
 
 def format_pick_text(title: str) -> str:
@@ -130,7 +151,7 @@ def weak_section_training_text(title: str, weak_section: str, training_text: str
 def works_text(items: list[str], page: int, total_pages: int) -> str:
     if not items:
         return "📚 Ваши работы\nВ данном разделе хранится история ваших работ.\n\nСохранённых работ пока нет."
-    return f"📚 Ваши работы\nВ данном разделе хранится история ваших работ.\n\nСтраница {page + 1}/{max(total_pages, 1)}"
+    return f"📚 Ваши работы\nВ данном разделе хранится история ваших работ.\n\nКатегории:\n1. 📝 Конспект\n\nСтраница {page + 1}/{max(total_pages, 1)}"
 
 
 def key_input_text() -> str:

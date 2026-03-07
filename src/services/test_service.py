@@ -2,13 +2,29 @@ from __future__ import annotations
 
 
 class TestService:
-    def generate_test_from_summary(self, summary_sections: list[dict[str, str]]) -> list[dict[str, object]]:
+    def _target_questions_count(self, mode: str, sections_count: int) -> int:
+        mode = (mode or "").strip()
+        if mode == "brief":
+            base = 8
+        elif mode == "cheat":
+            base = 9
+        elif mode == "simple":
+            base = 10
+        else:
+            base = 12
+        return max(8, min(12, max(base, sections_count)))
+
+    def generate_test_from_summary(self, summary_sections: list[dict[str, str]], mode: str = "detailed") -> list[dict[str, object]]:
+        if not summary_sections:
+            return []
         questions: list[dict[str, object]] = []
-        for idx, section in enumerate(summary_sections, start=1):
-            title = str(section.get("title", f"Раздел {idx}"))
+        target = self._target_questions_count(mode, len(summary_sections))
+        for idx in range(target):
+            section = summary_sections[idx % len(summary_sections)]
+            title = str(section.get("title", f"Раздел {idx + 1}"))
             questions.append(
                 {
-                    "id": idx,
+                    "id": idx + 1,
                     "question": f"Что лучше всего отражает смысл раздела «{title}»?",
                     "options": [
                         "Пропустить базовые определения",
@@ -19,7 +35,7 @@ class TestService:
                     "correct": 1,
                     "explanation": f"Верный ответ привязан к содержанию раздела «{title}».",
                     "section_title": title,
-                    "section_id": section.get("id", str(idx)),
+                    "section_id": section.get("id", str(idx + 1)),
                 }
             )
         return questions

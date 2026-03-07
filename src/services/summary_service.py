@@ -65,21 +65,27 @@ class SummaryService:
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
         return cleaned[:700]
 
-    def generate_sections(self, plan: list[str], context: str, mode: str) -> list[dict[str, str]]:
+    def generate_sections(self, topic: str, plan: list[str], context: str, mode: str) -> list[dict[str, str]]:
         style = self.MODE_LABELS.get(mode, "структурированно")
         ctx = self._sanitize_context(context)
         sections: list[dict[str, str]] = []
+
         for idx, title in enumerate(plan, start=1):
-            body = (
-                f"<i>Объяснение {style}.</i>\n\n"
-                f"• Суть: {title}.\n"
-                "• Что важно понять в этом разделе.\n"
-                "• Как применить знание на практике.\n"
-                "• Мини-проверка: попробуйте объяснить идею своими словами."
-            )
+            body_lines = [
+                f"<i>Раздел объяснён {style}.</i>",
+                "",
+                f"<b>Главная идея.</b> В теме «{topic}» этот раздел раскрывает аспект: {title}.",
+                "",
+                "<b>Как это работает на практике.</b>",
+                f"• Сформулируйте определение блока «{title}» своими словами.",
+                "• Найдите 1 реальный пример применения.",
+                "• Отметьте типичную ошибку и как её избежать.",
+                "",
+                "<b>Мини-проверка.</b> Ответьте: зачем этот раздел важен для понимания всей темы?",
+            ]
             if ctx:
-                body += f"\n\n<i>Контекст:</i> {ctx}"
-            sections.append({"id": str(idx), "title": title, "body": body})
+                body_lines.extend(["", f"<i>Полезный контекст:</i> {ctx}"])
+            sections.append({"id": str(idx), "title": title, "body": "\n".join(body_lines).strip()})
         return sections
 
     def rebalance_sections(self, sections: list[dict[str, str]], mode: str) -> list[dict[str, str]]:
@@ -87,22 +93,22 @@ class SummaryService:
         if not sections:
             return sections
         words = [len((s.get("body") or "").split()) for s in sections]
-        avg = max(40, int(sum(words) / len(words)))
+        avg = max(70, int(sum(words) / len(words)))
         balanced: list[dict[str, str]] = []
         for section in sections:
             body = section.get("body", "")
             ws = body.split()
             if len(ws) > int(avg * 1.4):
-                body = " ".join(ws[: int(avg * 1.2)]) + "\n\n<i>Сокращено для равномерности.</i>"
+                body = " ".join(ws[: int(avg * 1.2)]) + "\n\n<i>Сокращено для равномерности разделов.</i>"
             elif len(ws) < int(avg * 0.6):
-                body += "\n\n• Дополнение: закрепите определение и разберите короткий пример."
+                body += "\n\n• Дополнение: свяжите этот раздел с предыдущим и приведите короткий пример."
             balanced.append({**section, "body": body})
         return balanced
 
-    def generate_summary(self, source: SummarySource, mode: str) -> tuple[str, list[dict[str, str]]]:
-        plan = self.build_plan(source, mode)
+    def generate_summary(self, source: SummarySource, mode: str, approved_plan: list[str] | None = None) -> tuple[str, list[dict[str, str]]]:
+        plan = approved_plan or self.build_plan(source, mode)
         context = RAGService().build_context(source.title, source.source_text)
-        sections = self.generate_sections(plan, context, mode)
+        sections = self.generate_sections(source.title, plan, context, mode)
         sections = self.rebalance_sections(sections, mode)
         full = "\n\n".join([f"{s['title']}\n{s['body']}" for s in sections])
         return full, sections
@@ -110,9 +116,9 @@ class SummaryService:
     def rewrite_section(self, section: dict[str, str], rewrite_mode: str) -> dict[str, str]:
         body = section.get("body", "")
         if rewrite_mode == "shorter":
-            body = " ".join(body.split()[:60])
+            body = " ".join(body.split()[:90])
         elif rewrite_mode == "longer":
-            body += "\n\n• Дополнительно: добавьте ещё один пример из практики."
+            body += "\n\n• Дополнительно: добавьте ещё один пример из практики и один контрпример."
         else:
             body = f"<i>Объяснение проще:</i>\n\n{body}"
         return {**section, "body": body}

@@ -21,7 +21,7 @@ from src.services.rag import RAGService
 from src.services.text_extract import TextExtractService
 from src.services.summary_service import SummaryService, SummarySource
 from src.services.test_service import TestService
-from src.services.access_notifications import notify_access_change
+from src.services.access_notifications import notify_access_change, close_notice_kb
 from src.utils.callbacks import unpack
 
 from src.app.telegram.admin_kb import (
@@ -30,7 +30,6 @@ from src.app.telegram.admin_kb import (
     admin_uses_kb,
     admin_keys_menu_kb,
     admin_users_menu_kb,
-    admin_key_types_kb,
     admin_key_card_kb,
     admin_user_card_kb,
 )
@@ -183,15 +182,7 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
             return
 
         if data == "adm:key:create":
-            await cq.message.edit_text("Выберите тип ключа:", reply_markup=admin_key_types_kb())
-            return
-        if data.startswith("adm:type:"):
-            key_type = data.split(":")[2]
-            if key_type == "lifetime":
-                await ui_repo.set_awaiting(user_id, "admin_create_lifetime_uses")
-                await cq.message.answer("Введите количество активаций для бессрочного ключа (1..10000):")
-                return
-            await ui_repo.set_awaiting(user_id, "admin_key_type", meta={"key_type": key_type})
+            await ui_repo.set_awaiting(user_id, "admin_key_type", meta={"key_type": "multi"})
             await cq.message.edit_text("⏳ Выберите срок действия ключа:", reply_markup=admin_days_kb())
             return
 
@@ -356,13 +347,11 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
             meta = json.loads(state.awaiting_meta_json or "{}")
             key_type = meta.get("key_type", "multi")
             key_value = generate_key()
-            if key_type == "lifetime":
-                days = 0
             created = await repo.create_key(value=key_value, days_valid=days, max_uses=uses, key_type=key_type)
             await cq.message.edit_text(
                 "✅ <b>Ключ создан</b>\n\n"
                 f"ID: {created.id}\n<code>{key_value}</code>\n\n"
-                f"Тип: {_key_type_label(key_type)}\n📅 Срок: {days if days else 'бессрочно'}\n👥 Активаций: {uses}",
+                f"📅 Срок: {days} дней\n👥 Активаций: {uses}",
                 reply_markup=admin_keys_menu_kb(),
             )
             return
@@ -420,6 +409,22 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=int(cb.value))
         return
 
+
+    if cb.section == "topic" and cb.action == "title_confirm":
+        ui_state = await ui_repo.get_or_create(user_id)
+        meta = json.loads(ui_state.awaiting_meta_json or "{}")
+        title = str(meta.get("normalized_title", "")).strip()
+        if not title:
+            return await _safe_render_call(render, "show_topic_title_input", session, chat_id, user_id)
+        await ui_repo.set_awaiting(user_id, None)
+        topic = await TopicRepo(session).create_draft(user_id=user_id, title=title, source_type="topic")
+        await _safe_render_call(render, "show_format_pick", session, chat_id, user_id, topic_id=topic.id, title=topic.title)
+        return
+
+    if cb.section == "topic" and cb.action == "title_edit":
+        await _safe_render_call(render, "show_topic_title_input", session, chat_id, user_id)
+        return
+
     if cb.section == "topic" and cb.action == "open":
         await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=int(cb.value))
         return
@@ -463,8 +468,25 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
             file_name=topic.source_file_name,
         )
         plan = SummaryService().build_plan(source, topic.fmt or "brief")
+        await ui_repo.set_awaiting(user_id, "topic_plan_ready", meta={"topic_id": topic_id, "plan": plan, "source_text": source_text})
         await _safe_render_call(render, "show_plan_preview", session, chat_id, user_id, topic_id=topic_id, title=topic.title, plan=plan, push_history=False)
         return
+    if cb.section == "topic" and cb.action == "plan_edit":
+        topic_id = int(cb.value)
+        topic = await TopicRepo(session).get_by_id(user_id, topic_id)
+        if not topic:
+            return await _safe_render_call(render, "show_works_list", session, chat_id, user_id)
+        state = await ui_repo.get_or_create(user_id)
+        meta = json.loads(state.awaiting_meta_json or "{}")
+        plan = meta.get("plan") if int(meta.get("topic_id", 0)) == topic_id else None
+        lines = "\n".join(plan or [])
+        await ui_repo.set_awaiting(user_id, "topic_plan_edit", meta={"topic_id": topic_id, "source_text": meta.get("source_text", "")})
+        prompt = "Отправьте новый план отдельными строками (минимум 3 пункта)."
+        if lines:
+            prompt += f"\n\nТекущий план:\n{lines}"
+        await cq.message.answer(prompt)
+        return
+
     if cb.section == "topic" and cb.action == "generate":
         topic_id = int(cb.value)
         repo = TopicRepo(session)
@@ -476,14 +498,18 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         summary_service = SummaryService()
         test_service = TestService()
         source_text = ""
+        approved_plan = None
         ui_state = await ui_repo.get_or_create(user_id)
         meta = json.loads(ui_state.awaiting_meta_json or "{}")
-        if ui_state.awaiting_input == "topic_file_mode" and int(meta.get("topic_id", 0)) == topic_id:
+        if int(meta.get("topic_id", 0)) == topic_id:
             source_text = str(meta.get("source_text", ""))
+            plan_meta = meta.get("plan")
+            if isinstance(plan_meta, list):
+                approved_plan = [str(x).strip() for x in plan_meta if str(x).strip()]
             await ui_repo.set_awaiting(user_id, None)
         source = SummarySource(title=topic.title, source_type=topic.source_type or "topic", source_text=source_text, file_name=topic.source_file_name)
-        summary_text, sections = summary_service.generate_summary(source, topic.fmt or "brief")
-        test = test_service.generate_test_from_summary(sections)
+        summary_text, sections = summary_service.generate_summary(source, topic.fmt or "brief", approved_plan=approved_plan)
+        test = test_service.generate_test_from_summary(sections, mode=topic.fmt or "brief")
         await repo.save_generated_material(user_id=user_id, topic_id=topic_id, content_sections=sections, test_questions=test, summary_text=summary_text)
         await _safe_render_call(render, "show_topic_card", session, chat_id, user_id, topic_id=topic_id, push_history=False)
         return
@@ -655,20 +681,6 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
             await ui_repo.set_awaiting(user_id, "admin_key_type", meta={"key_type": key_type})
             return
 
-        if ui.awaiting_input == "admin_create_lifetime_uses":
-            try:
-                uses = int(text)
-                if uses < 1 or uses > 10000:
-                    raise ValueError
-            except Exception:
-                await message.answer("Введи число активаций (1..10000).")
-                return
-            key_value = generate_key()
-            created = await repo.create_key(value=key_value, days_valid=0, max_uses=uses, key_type="lifetime")
-            await ui_repo.set_awaiting(user_id, None)
-            await message.answer(f"✅ Ключ создан\nID: {created.id}\n<code>{created.value}</code>", reply_markup=admin_keys_menu_kb())
-            return
-
         if ui.awaiting_input == "admin_uses_custom":
             try:
                 uses = int(text)
@@ -683,8 +695,6 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
                 await ui_repo.set_awaiting(user_id, None)
                 await message.answer("Состояние сломано (не выбран срок). Открой /admin заново.")
                 return
-            if key_type == "lifetime":
-                days = 0
             key_value = generate_key()
             created = await repo.create_key(value=key_value, days_valid=days, max_uses=uses, key_type=key_type)
             await ui_repo.set_awaiting(user_id, None)
@@ -837,11 +847,22 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
             return
 
     if ui.awaiting_input == "key":
-        ok, key_row = await KeysRepo(session).activate_key(value=text, user_id=user_id)
+        ok, key_row, reason, added_days = await KeysRepo(session).activate_key(value=text, user_id=user_id)
         if not ok:
-            await message.answer("❌ Ключ недействителен, истёк или лимит активаций исчерпан.")
+            errors = {
+                "not_found": "❌ Ключ не найден. Проверьте формат UMK-####-#### и повторите попытку.",
+                "disabled": "⛔ Этот ключ отключён администратором.",
+                "expired": "⌛ Срок действия этого ключа истёк.",
+                "limit_reached": "🚫 Лимит активаций у этого ключа уже исчерпан.",
+                "already_activated": "ℹ️ Этот ключ уже активирован у вас. Повторная активация невозможна.",
+            }
+            await message.answer(errors.get(reason, "❌ Не удалось активировать ключ."), reply_markup=close_notice_kb())
             return
         await ui_repo.set_awaiting(user_id, None)
+        if reason == "extended" and added_days > 0:
+            await message.answer(f"✅ Ключ принят. Доступ продлён на {added_days} дн.", reply_markup=close_notice_kb())
+        elif reason == "extended":
+            await message.answer("✅ Ключ принят. Доступ успешно обновлён.", reply_markup=close_notice_kb())
         if key_row is not None:
             await notify_access_change(message.bot, user_id, title="Доступ обновлён", body="Ваш лицензионный ключ был активирован.")
         await _safe_render_call(render, "show_menu", session, chat_id, user_id)
@@ -851,7 +872,25 @@ async def on_text(message: Message, session: AsyncSession, render: Any):
         if len(text) < 3:
             await message.answer("Слишком коротко. Напиши тему чуть подробнее 🙂")
             return
-        await ui_repo.set_awaiting(user_id, None)
-        topic = await TopicRepo(session).create_draft(user_id=user_id, title=text, source_type="topic")
-        await _safe_render_call(render, "show_format_pick", session, chat_id, user_id, topic_id=topic.id, title=topic.title)
+        normalized = " ".join(text.split()).strip().capitalize()
+        await ui_repo.set_awaiting(user_id, "topic_title_confirm", meta={"raw_title": text, "normalized_title": normalized})
+        await _safe_render_call(render, "show_topic_title_confirm", session, chat_id, user_id, raw_title=text, normalized_title=normalized)
+        return
+
+    if ui.awaiting_input == "topic_plan_edit":
+        plan = [line.strip(" -•\t") for line in text.split("\n") if line.strip()]
+        if len(plan) < 3:
+            await message.answer("Нужно минимум 3 пункта плана. Отправьте план заново.")
+            return
+        meta = json.loads(ui.awaiting_meta_json or "{}")
+        topic_id = int(meta.get("topic_id", 0))
+        if topic_id <= 0:
+            await message.answer("Не удалось определить тему. Начните заново через «Создать конспект».")
+            return
+        topic = await TopicRepo(session).get_by_id(user_id, topic_id)
+        if not topic:
+            await message.answer("Тема не найдена. Начните заново.")
+            return
+        await ui_repo.set_awaiting(user_id, "topic_plan_ready", meta={"topic_id": topic_id, "plan": plan, "source_text": meta.get("source_text", "")})
+        await _safe_render_call(render, "show_plan_preview", session, chat_id, user_id, topic_id=topic_id, title=topic.title, plan=plan)
         return

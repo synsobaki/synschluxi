@@ -52,16 +52,19 @@ class RenderService:
         await self._set_screen(session, user_id, "key_request", push_history=push_history)
         await self._render(session, chat_id, user_id, screens.request_key_text(), keyboards.key_request_kb())
 
-    async def show_menu(self, session: AsyncSession, chat_id: int, user_id: int, push_history: bool = True, **_) -> None:
+    async def show_menu(self, session: AsyncSession, chat_id: int, user_id: int, first_name: str = "", push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "menu", push_history=push_history)
         is_active = await UserRepo(session).is_active(user_id)
         if not is_active:
             return await self.show_access_gate(session, chat_id, user_id, push_history=False)
+        user = await UserRepo(session).get_or_create(user_id)
         continue_topic = None
         candidate = await TopicRepo(session).get_continue_candidate(user_id)
         if candidate:
             continue_topic = (candidate.id, candidate.title)
-        await self._render(session, chat_id, user_id, screens.menu_text(is_active=is_active), keyboards.menu_kb(continue_topic, is_active=is_active))
+        display_name = (user.first_name or first_name or "").strip()
+        continue_title = candidate.title if candidate else None
+        await self._render(session, chat_id, user_id, screens.menu_text(first_name=display_name, continue_title=continue_title, is_active=is_active), keyboards.menu_kb(continue_topic, is_active=is_active))
 
     async def show_profile(self, session: AsyncSession, chat_id: int, user_id: int, first_name: str = "", push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "profile", push_history=push_history)
@@ -95,6 +98,11 @@ class RenderService:
         await self._set_screen(session, user_id, "topic_title_input", push_history=push_history)
         await UIStateRepo(session).set_awaiting(user_id, "topic_title")
         await self._render(session, chat_id, user_id, screens.topic_title_input_text(), keyboards.topic_title_input_kb())
+
+
+    async def show_topic_title_confirm(self, session: AsyncSession, chat_id: int, user_id: int, raw_title: str, normalized_title: str, push_history: bool = True, **_) -> None:
+        await self._set_screen(session, user_id, "topic_title_confirm", push_history=push_history)
+        await self._render(session, chat_id, user_id, screens.topic_title_confirm_text(raw_title, normalized_title), keyboards.topic_title_confirm_kb(raw_title, normalized_title))
 
     async def show_format_pick(self, session: AsyncSession, chat_id: int, user_id: int, topic_id: int, title: str, push_history: bool = True, **_) -> None:
         await self._set_screen(session, user_id, "topic_format", push_history=push_history)
@@ -191,7 +199,7 @@ class RenderService:
 
     async def show_by_screen(self, session: AsyncSession, chat_id: int, user_id: int, screen: str, first_name: str = "", push_history: bool = False, **_) -> None:
         if screen == "menu":
-            return await self.show_menu(session, chat_id, user_id, push_history=push_history)
+            return await self.show_menu(session, chat_id, user_id, first_name=first_name, push_history=push_history)
         if screen == "profile":
             return await self.show_profile(session, chat_id, user_id, first_name=first_name, push_history=push_history)
         if screen in {"key_input", "access_gate"}:

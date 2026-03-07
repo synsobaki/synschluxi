@@ -61,6 +61,17 @@ def topic_title_input_kb() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+
+
+def topic_title_confirm_kb(raw_title: str, normalized_title: str) -> InlineKeyboardMarkup:
+    _ = (raw_title, normalized_title)
+    b = InlineKeyboardBuilder()
+    b.button(text="✅ Подтвердить тему", callback_data=pack("topic", "title_confirm", 0))
+    b.button(text="✏ Изменить тему", callback_data=pack("topic", "title_edit", 0))
+    b.button(text="🏠 В меню", callback_data=pack("nav", "menu", 0))
+    b.adjust(1)
+    return b.as_markup()
+
 def format_pick_kb(topic_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="⚡ Кратко", callback_data=pack("topic", "format", f"{topic_id}|brief"))
@@ -74,7 +85,8 @@ def format_pick_kb(topic_id: int) -> InlineKeyboardMarkup:
 
 def topic_plan_kb(topic_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="📘 Создать конспект", callback_data=pack("topic", "generate", topic_id))
+    b.button(text="✅ Утвердить план и продолжить", callback_data=pack("topic", "generate", topic_id))
+    b.button(text="✏ Изменить план", callback_data=pack("topic", "plan_edit", topic_id))
     b.button(text="🔁 Перестроить план", callback_data=pack("topic", "plan_rebuild", topic_id))
     b.button(text="✏ Изменить тему", callback_data=pack("menu", "create", 0))
     b.button(text="🏠 В меню", callback_data=pack("nav", "menu", 0))
@@ -89,7 +101,7 @@ def topic_card_kb(topic_id: int, has_many_sections: bool = False, section_idx: i
         b.button(text="➡ Следующий раздел", callback_data=pack("topic", "section", f"{topic_id}|{section_idx + 1}"))
     b.button(text="✏ Изменить", callback_data=pack("topic", "edit", topic_id))
     if at_last_section:
-        b.button(text="🧪 Пройти тест", callback_data=pack("test", "start", topic_id))
+        b.button(text="🧠 Пройти тест", callback_data=pack("test", "start", topic_id))
         b.button(text="📄 Скачать PDF", callback_data=pack("topic", "pdf", topic_id))
     b.button(text="🏠 В меню", callback_data=pack("nav", "menu", 0))
     b.adjust(2, 1, 2, 1)
@@ -128,7 +140,7 @@ def works_kb(topics: list, page: int = 0, total_pages: int = 1) -> InlineKeyboar
     b = InlineKeyboardBuilder()
     for topic in topics:
         fmt = topic.fmt or "кратко"
-        b.button(text=f"📄 {topic.title}\nКонспект • {fmt} • {topic.mastery}%", callback_data=pack("works", "open", topic.id))
+        b.button(text=f"📝 {topic.title} • {fmt} • {topic.mastery}%", callback_data=pack("works", "open", topic.id))
     b.row(
         InlineKeyboardButton(text="⬅", callback_data=pack("works", "page", max(page - 1, 0))),
         InlineKeyboardButton(text="➡", callback_data=pack("works", "page", min(page + 1, max(total_pages - 1, 0)))),
