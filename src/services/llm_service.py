@@ -14,14 +14,24 @@ class LLMService:
         self.provider = (os.getenv("LLM_PROVIDER") or "openai").strip().lower()
         self.api_key = (os.getenv("LLM_API_KEY") or "").strip()
         self.model = (os.getenv("LLM_MODEL") or "").strip()
-        self.base_url = (os.getenv("LLM_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
-        self.timeout_s = int(os.getenv("LLM_TIMEOUT_S", "35"))
+        default_base = "https://gigachat.devices.sberbank.ru/api/v1" if self.provider == "gigachat" else "https://api.openai.com/v1"
+        self.base_url = (os.getenv("LLM_BASE_URL") or default_base).rstrip("/")
+        self.timeout_s = self._safe_int(os.getenv("LLM_TIMEOUT_S"), 35)
         self.insecure_ssl = (os.getenv("LLM_INSECURE_SSL") or "0").strip() in {"1", "true", "yes"}
 
         # GigaChat settings
         self.gigachat_auth_key = (os.getenv("GIGACHAT_AUTH_KEY") or "").strip()
         self.gigachat_scope = (os.getenv("GIGACHAT_SCOPE") or "GIGACHAT_API_PERS").strip()
         self.gigachat_oauth_url = (os.getenv("GIGACHAT_OAUTH_URL") or "https://ngw.devices.sberbank.ru:9443/api/v2/oauth").strip()
+
+    @staticmethod
+    def _safe_int(value: str | None, default: int) -> int:
+        try:
+            if value is None:
+                return default
+            return int(str(value).strip())
+        except Exception:
+            return default
 
     @property
     def enabled(self) -> bool:
@@ -118,6 +128,19 @@ class LLMService:
         except Exception:
             return None
 
+    def _extract_message_content(self, data: dict) -> str | None:
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except Exception:
+            return None
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "".join(str(c.get("text", "")) if isinstance(c, dict) else str(c) for c in content)
+        if isinstance(content, dict):
+            return str(content.get("text", ""))
+        return str(content)
+
     def _chat_json(self, system_prompt: str, user_prompt: str) -> dict | None:
         payload: dict = {
             "model": self.model,
@@ -132,14 +155,16 @@ class LLMService:
         else:
             payload["response_format"] = {"type": "json_object"}
             data = self._post_json_openai("/chat/completions", payload)
+            if not data:
+                payload.pop("response_format", None)
+                data = self._post_json_openai("/chat/completions", payload)
         if not data:
             return None
         try:
-            content = data["choices"][0]["message"]["content"]
-            if isinstance(content, list):
-                # compatibility with some providers returning structured content blocks
-                content = "".join(str(c.get("text", "")) if isinstance(c, dict) else str(c) for c in content)
-            return self._extract_json_object(str(content))
+            content = self._extract_message_content(data)
+            if not content:
+                return None
+            return self._extract_json_object(content)
         except Exception:
             return None
 

@@ -50,7 +50,7 @@
 
 - `LLM_API_KEY`
 - `LLM_MODEL`
-- `LLM_BASE_URL` (по умолчанию `https://api.openai.com/v1`)
+- `LLM_BASE_URL` (если пусто: `openai -> https://api.openai.com/v1`, `gigachat -> https://gigachat.devices.sberbank.ru/api/v1`)
 - `LLM_TIMEOUT_S`
 - `LLM_INSECURE_SSL` (1 — отключить проверку TLS, только для dev-стендов)
 
