@@ -43,29 +43,18 @@
 
 - Подробное ТЗ продукта: `docs/TECH_SPEC.md`.
 
+## LLM (GigaChat)
 
-## LLM (опционально)
+Для умной генерации конспектов и тестов используется только GigaChat API.
 
-Для умной генерации конспектов и тестов можно задать переменные в `.env`:
+Переменные в `.env`:
 
-- `LLM_API_KEY`
 - `LLM_MODEL`
-- `LLM_BASE_URL` (если пусто: `openai -> https://api.openai.com/v1`, `gigachat -> https://gigachat.devices.sberbank.ru/api/v1`)
+- `LLM_BASE_URL` (если пусто: `https://gigachat.devices.sberbank.ru/api/v1`)
 - `LLM_TIMEOUT_S`
 - `LLM_INSECURE_SSL` (1 — отключить проверку TLS, только для dev-стендов)
-
-Если переменные не заданы, бот использует локальный fallback-генератор.
-
-
-### GigaChat API
-
-Для работы через GigaChat:
-
-- `LLM_PROVIDER=gigachat`
-- `LLM_MODEL=<имя_модели>`
-- `LLM_BASE_URL=https://gigachat.devices.sberbank.ru/api/v1`
-- `GIGACHAT_AUTH_KEY=<Basic base64(...) ИЛИ client_id:client_secret>`
-- `GIGACHAT_SCOPE=GIGACHAT_API_PERS`
-- `GIGACHAT_OAUTH_URL=https://ngw.devices.sberbank.ru:9443/api/v2/oauth`
+- `GIGACHAT_AUTH_KEY` (`Basic base64(...)` или `client_id:client_secret`)
+- `GIGACHAT_SCOPE`
+- `GIGACHAT_OAUTH_URL`
 
 Если GigaChat недоступен или настроен неверно, бот автоматически вернётся к локальному fallback-генератору.
