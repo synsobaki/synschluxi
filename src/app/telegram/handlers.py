@@ -471,7 +471,7 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         topic = await repo.get_by_id(user_id, topic_id)
         if not topic:
             return await _safe_render_call(render, "show_works_list", session, chat_id, user_id)
-        for step in range(7):
+        for step in range(10):
             await _safe_render_call(render, "show_generation_status", session, chat_id, user_id, step=step, push_history=(step == 0))
         summary_service = SummaryService()
         test_service = TestService()
@@ -563,10 +563,14 @@ async def on_any_callback(cq: CallbackQuery, session: AsyncSession, render: Any)
         return
 
     if cb.section == "training" and cb.action == "open":
-        topic_id = int(str(cb.value).split("|", 1)[0])
+        value_parts = str(cb.value).split("|", 1)
+        topic_id = int(value_parts[0])
+        callback_weak = value_parts[1] if len(value_parts) > 1 else "0"
         ui = await ui_repo.get_or_create(user_id)
         meta = json.loads(ui.awaiting_meta_json or "{}")
         weak = str(meta.get("weak", "Ключевые понятия"))
+        if callback_weak and callback_weak != "0":
+            weak = callback_weak
         topic = await TopicRepo(session).get_by_id(user_id, topic_id)
         if not topic:
             return

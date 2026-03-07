@@ -59,6 +59,9 @@ class SummaryService:
 
     def _sanitize_context(self, text: str) -> str:
         cleaned = re.sub(r"```[\s\S]*?```", "", text)
+        cleaned = re.sub(r"(?im)^\s*источник:.*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*source:.*$", "", cleaned)
+        cleaned = re.sub(r"\bИсточник\b", "", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
         return cleaned[:700]
 
