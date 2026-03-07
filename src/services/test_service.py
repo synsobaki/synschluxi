@@ -30,14 +30,15 @@ class TestService:
                 f"{title} нужен только для заучивания без понимания",
                 f"{title} используется только в теории и никогда в задачах",
             ]
-            correct = idx % 4
-            rotated = options[correct:] + options[:correct]
+            shift = idx % len(options)
+            rotated = options[shift:] + options[:shift]
+            correct = (0 - shift) % len(options)
             questions.append(
                 {
                     "id": idx,
                     "question": f"Какое утверждение лучше всего описывает раздел «{title}»?",
                     "options": rotated,
-                    "correct": 0,
+                    "correct": correct,
                     "explanation": f"Верный вариант отражает суть раздела: {fact}.",
                     "section_title": title,
                     "section_id": section.get("id", str(idx)),
