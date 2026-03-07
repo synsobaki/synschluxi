@@ -52,6 +52,7 @@
 - `LLM_MODEL`
 - `LLM_BASE_URL` (по умолчанию `https://api.openai.com/v1`)
 - `LLM_TIMEOUT_S`
+- `LLM_INSECURE_SSL` (1 — отключить проверку TLS, только для dev-стендов)
 
 Если переменные не заданы, бот использует локальный fallback-генератор.
 

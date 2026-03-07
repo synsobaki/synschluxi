@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
+import ssl
 import uuid
 from urllib import parse, request
 
@@ -14,6 +16,7 @@ class LLMService:
         self.model = (os.getenv("LLM_MODEL") or "").strip()
         self.base_url = (os.getenv("LLM_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
         self.timeout_s = int(os.getenv("LLM_TIMEOUT_S", "35"))
+        self.insecure_ssl = (os.getenv("LLM_INSECURE_SSL") or "0").strip() in {"1", "true", "yes"}
 
         # GigaChat settings
         self.gigachat_auth_key = (os.getenv("GIGACHAT_AUTH_KEY") or "").strip()
@@ -35,7 +38,7 @@ class LLMService:
         req.add_header("Authorization", f"Bearer {self.api_key}")
         req.add_header("Content-Type", "application/json")
         try:
-            with request.urlopen(req, timeout=self.timeout_s) as response:
+            with self._urlopen(req) as response:
                 body = response.read().decode("utf-8", errors="replace")
                 parsed = json.loads(body)
                 if isinstance(parsed, dict):
@@ -65,7 +68,7 @@ class LLMService:
         req.add_header("Authorization", auth_header)
 
         try:
-            with request.urlopen(req, timeout=self.timeout_s) as response:
+            with self._urlopen(req) as response:
                 body = response.read().decode("utf-8", errors="replace")
                 parsed = json.loads(body)
                 token = parsed.get("access_token") if isinstance(parsed, dict) else None
@@ -84,18 +87,41 @@ class LLMService:
         req.add_header("Content-Type", "application/json")
         req.add_header("Accept", "application/json")
         try:
-            with request.urlopen(req, timeout=self.timeout_s) as response:
+            with self._urlopen(req) as response:
                 body = response.read().decode("utf-8", errors="replace")
                 parsed = json.loads(body)
                 return parsed if isinstance(parsed, dict) else None
         except Exception:
             return None
 
+    def _urlopen(self, req: request.Request):
+        if self.insecure_ssl:
+            return request.urlopen(req, timeout=self.timeout_s, context=ssl._create_unverified_context())
+        return request.urlopen(req, timeout=self.timeout_s)
+
+    def _extract_json_object(self, content: str) -> dict | None:
+        raw = content.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            pass
+        match = re.search(r"\{[\s\S]*\}", raw)
+        if not match:
+            return None
+        try:
+            parsed = json.loads(match.group(0))
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            return None
+
     def _chat_json(self, system_prompt: str, user_prompt: str) -> dict | None:
-        payload = {
+        payload: dict = {
             "model": self.model,
             "temperature": 0.4,
-            "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -104,6 +130,7 @@ class LLMService:
         if self.provider == "gigachat":
             data = self._post_json_gigachat(payload)
         else:
+            payload["response_format"] = {"type": "json_object"}
             data = self._post_json_openai("/chat/completions", payload)
         if not data:
             return None
@@ -112,8 +139,7 @@ class LLMService:
             if isinstance(content, list):
                 # compatibility with some providers returning structured content blocks
                 content = "".join(str(c.get("text", "")) if isinstance(c, dict) else str(c) for c in content)
-            obj = json.loads(str(content))
-            return obj if isinstance(obj, dict) else None
+            return self._extract_json_object(str(content))
         except Exception:
             return None
 
