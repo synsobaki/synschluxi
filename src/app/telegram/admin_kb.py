@@ -4,18 +4,18 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 def admin_panel_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="🔑 Ключи", callback_data="adm:keys:menu")
-    b.button(text="👤 Пользователи", callback_data="adm:users:menu")
-    b.button(text="📊 Статистика", callback_data="adm:stats:menu")
+    b.button(text="🗝️ Ключи", callback_data="adm:keys:menu")
+    b.button(text="👥 Пользователи", callback_data="adm:users:menu")
+    b.button(text="📈 Статистика", callback_data="adm:stats:menu")
     b.adjust(1)
     return b.as_markup()
 
 
 def admin_keys_menu_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="создать ключ", callback_data="adm:key:create")
-    b.button(text="список ключей", callback_data="adm:key:list")
-    b.button(text="найти ключ", callback_data="adm:key:find")
+    b.button(text="➕ Создать ключ", callback_data="adm:key:create")
+    b.button(text="🧾 Управление ключами", callback_data="adm:key:list")
+    b.button(text="🔎 Найти ключ", callback_data="adm:key:find")
     b.button(text="⬅ Назад", callback_data="adm:back:panel")
     b.adjust(1)
     return b.as_markup()
@@ -23,19 +23,9 @@ def admin_keys_menu_kb() -> InlineKeyboardMarkup:
 
 def admin_users_menu_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="найти пользователя", callback_data="adm:user:find")
-    b.button(text="список пользователей", callback_data="adm:user:list")
+    b.button(text="🔎 Найти пользователя", callback_data="adm:user:find")
+    b.button(text="📋 Список пользователей", callback_data="adm:user:list")
     b.button(text="⬅ Назад", callback_data="adm:back:panel")
-    b.adjust(1)
-    return b.as_markup()
-
-
-def admin_key_types_kb() -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    b.button(text="одноразовый", callback_data="adm:type:single")
-    b.button(text="мультиактивация", callback_data="adm:type:multi")
-    b.button(text="бессрочный", callback_data="adm:type:lifetime")
-    b.button(text="⬅ Назад", callback_data="adm:keys:menu")
     b.adjust(1)
     return b.as_markup()
 
@@ -75,12 +65,12 @@ def admin_key_row_actions_kb(key_id: int) -> InlineKeyboardMarkup:
 
 def admin_key_card_kb(key_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="Выдать пользователю", callback_data=f"adm:grant:{key_id}")
-    b.button(text="Изменить срок", callback_data=f"adm:editdays:{key_id}")
-    b.button(text="Изменить лимит", callback_data=f"adm:edituses:{key_id}")
-    b.button(text="Продлить доступ", callback_data=f"adm:extend:{key_id}")
-    b.button(text="Отключить/включить", callback_data=f"adm:toggle:{key_id}")
-    b.button(text="Удалить ключ", callback_data=f"adm:delete:{key_id}")
+    b.button(text="👤 Выдать пользователю", callback_data=f"adm:grant:{key_id}")
+    b.button(text="📅 Изменить срок", callback_data=f"adm:editdays:{key_id}")
+    b.button(text="♻️ Изменить лимит", callback_data=f"adm:edituses:{key_id}")
+    b.button(text="➕ Продлить доступ", callback_data=f"adm:extend:{key_id}")
+    b.button(text="🔌 Отключить/включить", callback_data=f"adm:toggle:{key_id}")
+    b.button(text="🗑️ Удалить ключ", callback_data=f"adm:delete:{key_id}")
     b.button(text="⬅ К списку", callback_data="adm:key:list")
     b.adjust(1)
     return b.as_markup()
@@ -88,11 +78,11 @@ def admin_key_card_kb(key_id: int) -> InlineKeyboardMarkup:
 
 def admin_user_card_kb(user_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="выдать ключ", callback_data=f"adm:usergrant:{user_id}")
-    b.button(text="продлить доступ", callback_data=f"adm:userextend:{user_id}")
-    b.button(text="отключить доступ", callback_data=f"adm:useroff:{user_id}")
-    b.button(text="удалить ключ", callback_data=f"adm:userdelkey:{user_id}")
-    b.button(text="посмотреть темы", callback_data=f"adm:usertopics:{user_id}")
+    b.button(text="🗝️ Выдать ключ", callback_data=f"adm:usergrant:{user_id}")
+    b.button(text="➕ Продлить доступ", callback_data=f"adm:userextend:{user_id}")
+    b.button(text="⛔ Отключить доступ", callback_data=f"adm:useroff:{user_id}")
+    b.button(text="🧹 Удалить ключ", callback_data=f"adm:userdelkey:{user_id}")
+    b.button(text="📚 Посмотреть темы", callback_data=f"adm:usertopics:{user_id}")
     b.button(text="⬅ Пользователи", callback_data="adm:users:menu")
     b.adjust(1)
     return b.as_markup()

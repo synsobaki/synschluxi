@@ -70,31 +70,42 @@ class KeysRepo:
         self.session.add(KeyActivationRow(key_id=key_id, user_id=user_id, activated_at=datetime.utcnow()))
         await self.session.flush()
 
-    async def activate_key(self, value: str, user_id: int) -> tuple[bool, KeyRow | None]:
+    async def activate_key(self, value: str, user_id: int) -> tuple[bool, KeyRow | None, str, int]:
         value = normalize_key(value)
         row = await self.get_by_key(value)
         if not row:
-            return False, None
+            return False, None, "not_found", 0
 
         now = datetime.utcnow()
         if row.is_disabled:
-            return False, row
+            return False, row, "disabled", 0
         if row.expires_at and row.expires_at < now:
-            return False, row
+            return False, row, "expired", 0
 
-        user = await UserRepo(self.session).get_or_create(user_id)
-        if user.active_key == row.value and (user.key_expires_at is None or user.key_expires_at >= now):
-            return True, row
+        user_repo = UserRepo(self.session)
+        user = await user_repo.get_or_create(user_id)
+        has_active_access = bool(user.active_key) and (user.key_expires_at is None or user.key_expires_at >= now)
+
+        if user.active_key == row.value and has_active_access:
+            return False, row, "already_activated", 0
 
         if row.used_count >= row.max_uses:
-            return False, row
+            return False, row, "limit_reached", 0
 
         row.used_count += 1
-        expires_at = None if row.days_valid == 0 else now + timedelta(days=row.days_valid)
-        await UserRepo(self.session).set_active(user_id=user_id, key_value=row.value, key_expires_at=expires_at)
         await self._record_activation(row.id, user_id)
+
+        if has_active_access and user.active_key and user.active_key != row.value and row.days_valid > 0:
+            base = user.key_expires_at if user.key_expires_at and user.key_expires_at > now else now
+            expires_at = base + timedelta(days=row.days_valid)
+            await user_repo.set_active(user_id=user_id, key_value=row.value, key_expires_at=expires_at)
+            await self.session.flush()
+            return True, row, "extended", row.days_valid
+
+        expires_at = None if row.days_valid == 0 else now + timedelta(days=row.days_valid)
+        await user_repo.set_active(user_id=user_id, key_value=row.value, key_expires_at=expires_at)
         await self.session.flush()
-        return True, row
+        return True, row, "activated", row.days_valid
 
     async def grant_key_to_user(self, key_id: int, user_id: int) -> tuple[bool, KeyRow | None]:
         row = await self.get_by_id(key_id)
