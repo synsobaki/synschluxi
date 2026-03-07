@@ -41,16 +41,15 @@ def menu_text(is_active: bool = True) -> str:
 
 
 def profile_text(first_name: str, is_active: bool, masked_key: str | None, expires_at: str | None, topics_studied: int = 0, avg_result: int = 0) -> str:
-    status = "🟢 Активен" if is_active else "🔴 Не активен"
-    ttl = expires_at or "бессрочный"
+    status = "активен" if is_active else "не активен"
+    ttl = expires_at or "бессрочно"
     return (
-        "👤 Профиль\n\n"
-        f"Имя: {first_name or 'Пользователь'}\n"
-        f"Статус: {status}\n"
+        f"👤 {first_name or 'Пользователь'}\n\n"
+        f"Доступ: {status}\n"
         f"Ключ: {masked_key or 'не подключён'}\n"
-        f"Срок: {ttl}\n\n"
-        f"Тем изучено: {topics_studied}\n"
-        f"Средний результат: {avg_result}%"
+        f"Ключ действует до: {ttl}\n\n"
+        f"Изучено тем: {topics_studied}\n"
+        f"Средний результат тестов: {avg_result}%"
     )
 
 
@@ -67,17 +66,21 @@ def format_pick_text(title: str) -> str:
 
 
 def topic_plan_text(title: str, plan: list[str] | None = None) -> str:
-    plan = plan or ["Определение", "Основные идеи", "Алгоритм / механизм", "Примеры", "Итог"]
+    plan = plan or ["Ключевые понятия", "Структура темы", "Практические сценарии", "Типичные ошибки", "Итог и проверка"]
     numbered = "\n".join([f"{i}. {item}" for i, item in enumerate(plan, start=1)])
     return f"📚 Тема: {title}\n\nПлан конспекта:\n\n{numbered}"
 
 
 def generation_status_text(step: int = 0) -> str:
     steps = [
+        "Нормализуем тему",
+        "Уточняем формулировку",
         "Анализируем тему",
         "Строим план",
+        "Проверяем предметность плана",
         "Подбираем материалы",
-        "Генерируем конспект",
+        "Генерируем разделы",
+        "Очищаем текст",
         "Выравниваем разделы",
         "Собираем итоговый конспект",
         "Генерируем тест",
@@ -90,7 +93,7 @@ def summary_section_text(title: str, fmt: str, status: str, section_title: str, 
     _ = status
     return (
         f"📘 {title}\nФормат: {fmt}\n"
-        f"────────────\nРаздел {section_idx + 1}/{max(total_sections, 1)}\n"
+        f"────────────\nРаздел {section_idx + 1} из {max(total_sections, 1)}\n"
         f"<b>{section_title}</b>\n\n{section_body}"
     )
 
@@ -113,10 +116,10 @@ def test_result_text(score: int, total: int, weak_sections: list[str]) -> str:
 def test_review_text(item: dict[str, str], index: int, total: int) -> str:
     return (
         f"Вопрос {index + 1}/{total}\n\n"
-        f"{item.get('question', '')}\n\n"
+        f"Вопрос: {item.get('question', '')}\n\n"
         f"Ваш ответ: {item.get('user_answer', '—')}\n"
         f"Правильный ответ: {item.get('correct_answer', '—')}\n"
-        f"Статус: {item.get('status', '—')}"
+        f"{item.get('status', '—')}"
     )
 
 

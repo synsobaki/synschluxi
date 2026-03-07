@@ -18,7 +18,7 @@ def menu_kb(continue_topic: tuple[int, str] | None = None, is_active: bool = Tru
     b = InlineKeyboardBuilder()
     if continue_topic and is_active:
         topic_id, _ = continue_topic
-        b.button(text="▶ Продолжить", callback_data=pack("topic", "open", topic_id))
+        b.button(text="▶ Продолжить", callback_data=pack("topic", "open_last", topic_id))
     b.button(text="📘 Создать конспект", callback_data=pack("menu", "create", 0))
     b.button(text="📚 Ваши работы", callback_data=pack("menu", "works", 0))
     b.button(text="👤 Профиль", callback_data=pack("menu", "profile", 0))
